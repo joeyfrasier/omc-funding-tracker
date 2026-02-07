@@ -1,0 +1,10 @@
+.env
+service-account.json
+venv/
+__pycache__/
+*.pyc
+data/
+*.egg-info/
+.pytest_cache/
+connection_test_report.md
+test_connections.py

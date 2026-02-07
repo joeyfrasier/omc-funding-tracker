@@ -1,0 +1,8 @@
+google-auth
+google-api-python-client
+sshtunnel
+psycopg2-binary
+python-dotenv
+requests
+flask
+paramiko<4
