@@ -47,13 +47,21 @@ def parse_csv(data: bytes, source_type: str = 'oasys', email_id: str = '', subje
         Ref Number\tInv Nbr\t...
         LINE1\tNVC...\t...
     """
-    try:
-        text = data.decode('utf-8', errors='replace')
-    except:
-        text = data.decode('latin-1', errors='replace')
+    # Detect encoding - UTF-16 LE BOM is common for OASYS CSVs
+    if data[:2] == b'\xff\xfe':
+        text = data.decode('utf-16-le')
+    elif data[:2] == b'\xfe\xff':
+        text = data.decode('utf-16-be')
+    elif data[:3] == b'\xef\xbb\xbf':
+        text = data.decode('utf-8')
+    else:
+        try:
+            text = data.decode('utf-8')
+        except UnicodeDecodeError:
+            text = data.decode('latin-1')
     
-    # Strip BOM and weird chars
-    text = text.lstrip('\ufeff\xef\xbb\xbf')
+    # Strip BOM chars
+    text = text.lstrip('\ufeff\xfeff')
     
     lines = text.strip().split('\n')
     
