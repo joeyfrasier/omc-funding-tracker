@@ -2,13 +2,33 @@
 import json
 import logging
 import traceback
+import threading
+from collections import deque
 from datetime import datetime
 from decimal import Decimal
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response
 from gmail_client import fetch_all_remittances, fetch_emails, mark_processed, load_processed
 from csv_parser import parse_email_attachments, Remittance
 from matcher import reconcile, reconcile_batch, ReconciliationReport
 from db_client import get_omc_payments, get_omc_payruns, status_label
+
+# --- Activity Log (in-memory ring buffer for UI streaming) ---
+_activity_log = deque(maxlen=200)
+_activity_lock = threading.Lock()
+
+
+class ActivityHandler(logging.Handler):
+    """Captures log records into the activity log for UI display."""
+    def emit(self, record):
+        entry = {
+            'ts': datetime.now().isoformat(),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': self.format(record),
+        }
+        with _activity_lock:
+            _activity_log.append(entry)
+
 
 # Configure logging
 logging.basicConfig(
@@ -16,6 +36,11 @@ logging.basicConfig(
     format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
 )
+# Add activity handler to root so all module logs are captured
+_activity_handler = ActivityHandler()
+_activity_handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', '%H:%M:%S'))
+logging.getLogger().addHandler(_activity_handler)
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -26,6 +51,9 @@ _cache = {
     'reports': [],
     'emails_fetched': 0,
     'errors': [],
+    'run_in_progress': False,
+    'run_step': '',
+    'run_progress': 0,  # 0-100
 }
 
 
@@ -49,47 +77,120 @@ def index():
 @app.route('/api/run', methods=['POST'])
 def run_reconciliation():
     """Fetch emails, parse CSVs, reconcile against DB."""
+    if _cache['run_in_progress']:
+        return jsonify({'success': False, 'error': 'A reconciliation run is already in progress'}), 409
+    
     try:
+        _cache['run_in_progress'] = True
+        _cache['errors'] = []
         max_emails = request.json.get('max_emails', 20) if request.json else 20
+        include_processed = request.json.get('include_processed', False) if request.json else False
         
         # Step 1: Fetch emails
-        logger.info("=== RECONCILIATION RUN STARTED (max_emails=%d) ===", max_emails)
-        logger.info("Step 1/4: Fetching remittance emails...")
+        _cache['run_step'] = 'Fetching remittance emails...'
+        _cache['run_progress'] = 10
+        logger.info("=" * 60)
+        logger.info("RECONCILIATION RUN STARTED (max_emails=%d, include_processed=%s)", max_emails, include_processed)
+        logger.info("=" * 60)
+        logger.info("Step 1/4: Fetching remittance emails from Gmail...")
+        
+        if include_processed:
+            logger.info("Including already-processed emails (re-run mode)")
+        
         emails = fetch_all_remittances(max_per_source=max_emails)
+        _cache['run_progress'] = 30
+        
+        if not emails:
+            logger.warning("No new emails found. All %d emails already processed.", len(load_processed()))
+            logger.info("Tip: Use include_processed=true to re-process previously seen emails.")
+            _cache['run_step'] = 'Complete (no new emails)'
+            _cache['run_progress'] = 100
+            _cache['run_in_progress'] = False
+            _cache['last_run'] = datetime.now().isoformat()
+            return jsonify({
+                'success': True,
+                'emails_fetched': 0,
+                'remittances_parsed': 0,
+                'reports': 0,
+                'summary': _build_summary([]),
+                'message': f'No new emails found. {len(load_processed())} emails already processed.',
+            })
+        
         logger.info("Step 1 complete: %d emails fetched", len(emails))
         
         # Step 2: Parse CSVs
-        logger.info("Step 2/4: Parsing CSV attachments...")
+        _cache['run_step'] = f'Parsing {len(emails)} email attachments...'
+        _cache['run_progress'] = 40
+        logger.info("Step 2/4: Parsing CSV attachments from %d emails...", len(emails))
         all_remittances = []
         manual_count = 0
-        for email in emails:
+        parse_errors = 0
+        for i, email in enumerate(emails, 1):
             if email.get('manual_review'):
                 manual_count += 1
+                logger.info("  [%d/%d] Skipping (manual review required): %s", i, len(emails), email.get('subject', '?')[:50])
                 continue
-            parsed = parse_email_attachments(email)
-            all_remittances.extend(parsed)
-        logger.info("Step 2 complete: %d remittances parsed (%d emails skipped for manual review)", len(all_remittances), manual_count)
+            try:
+                parsed = parse_email_attachments(email)
+                all_remittances.extend(parsed)
+                if parsed:
+                    logger.info("  [%d/%d] Parsed %d remittance(s): %s", i, len(emails), len(parsed), email.get('subject', '?')[:50])
+                else:
+                    logger.warning("  [%d/%d] No CSVs found in: %s", i, len(emails), email.get('subject', '?')[:50])
+            except Exception as e:
+                parse_errors += 1
+                logger.error("  [%d/%d] Parse error for %s: %s", i, len(emails), email.get('subject', '?')[:50], e)
+        
+        _cache['run_progress'] = 60
+        logger.info("Step 2 complete: %d remittances parsed, %d manual review, %d parse errors", len(all_remittances), manual_count, parse_errors)
+        
+        if not all_remittances:
+            logger.warning("No remittances could be parsed from the fetched emails.")
+            _cache['run_step'] = 'Complete (no parseable remittances)'
+            _cache['run_progress'] = 100
+            _cache['run_in_progress'] = False
+            _cache['last_run'] = datetime.now().isoformat()
+            return jsonify({
+                'success': True,
+                'emails_fetched': len(emails),
+                'remittances_parsed': 0,
+                'reports': 0,
+                'summary': _build_summary([]),
+                'message': 'Emails fetched but no CSVs could be parsed.',
+            })
         
         # Step 3: Reconcile
-        logger.info("Step 3/4: Reconciling against database...")
+        _cache['run_step'] = f'Reconciling {len(all_remittances)} remittances against database...'
+        _cache['run_progress'] = 70
+        logger.info("Step 3/4: Reconciling %d remittances against Worksuite database...", len(all_remittances))
+        logger.info("  Opening SSH tunnel to aggregate DB...")
         reports = reconcile_batch(all_remittances)
+        _cache['run_progress'] = 90
         logger.info("Step 3 complete: %d reconciliation reports generated", len(reports))
         
         # Step 4: Mark processed
-        logger.info("Step 4/4: Marking emails as processed...")
+        _cache['run_step'] = 'Marking emails as processed...'
+        logger.info("Step 4/4: Marking %d emails as processed...", len(emails))
         processed_ids = [e['id'] for e in emails]
         mark_processed(processed_ids)
-        logger.info("Step 4 complete: %d emails marked as processed", len(processed_ids))
+        logger.info("Step 4 complete: %d emails marked as processed (total processed: %d)", len(processed_ids), len(load_processed()))
         
         # Cache results
         _cache['last_run'] = datetime.now().isoformat()
         _cache['reports'] = reports
         _cache['emails_fetched'] = len(emails)
-        _cache['errors'] = []
+        _cache['run_step'] = 'Complete'
+        _cache['run_progress'] = 100
         
         summary = _build_summary(reports)
-        logger.info("=== RECONCILIATION RUN COMPLETE === Match rate: %s | Total value: $%s",
-                    summary.get('match_rate', 'N/A'), f"{summary.get('total_remittance_value', 0):,.2f}")
+        logger.info("=" * 60)
+        logger.info("RECONCILIATION RUN COMPLETE")
+        logger.info("  Emails: %d | Remittances: %d | Reports: %d", len(emails), len(all_remittances), len(reports))
+        logger.info("  Matched: %d | Mismatched: %d | Not Found: %d", summary.get('matched', 0), summary.get('mismatched', 0), summary.get('not_found', 0))
+        logger.info("  Match Rate: %s | Total Value: $%s", summary.get('match_rate', 'N/A'), f"{summary.get('total_remittance_value', 0):,.2f}")
+        if parse_errors:
+            logger.warning("  ⚠️ %d emails had parse errors", parse_errors)
+        logger.info("=" * 60)
         
         return jsonify({
             'success': True,
@@ -100,8 +201,14 @@ def run_reconciliation():
         })
     except Exception as e:
         _cache['errors'].append(str(e))
-        logger.error("Reconciliation run failed: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        _cache['run_step'] = f'ERROR: {str(e)}'
+        logger.error("=" * 60)
+        logger.error("RECONCILIATION RUN FAILED: %s", e)
+        logger.error(traceback.format_exc())
+        logger.error("=" * 60)
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
+    finally:
+        _cache['run_in_progress'] = False
 
 
 @app.route('/api/status')
@@ -115,7 +222,21 @@ def status():
         'processed_count': len(load_processed()),
         'summary': _build_summary(reports),
         'errors': _cache['errors'],
+        'run_in_progress': _cache['run_in_progress'],
+        'run_step': _cache['run_step'],
+        'run_progress': _cache['run_progress'],
     })
+
+
+@app.route('/api/activity')
+def activity():
+    """Get recent activity log entries."""
+    since = request.args.get('since', '')
+    with _activity_lock:
+        entries = list(_activity_log)
+    if since:
+        entries = [e for e in entries if e['ts'] > since]
+    return jsonify(entries[-50:])
 
 
 @app.route('/api/reports')

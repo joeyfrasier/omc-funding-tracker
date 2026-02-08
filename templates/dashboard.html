@@ -61,6 +61,18 @@
   
   .empty { text-align: center; padding: 48px; color: var(--muted); }
   .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+  
+  .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; overflow: hidden; display: none; }
+  .progress-bar.active { display: block; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; width: 0%; }
+  .step-label { font-size: 12px; color: var(--accent); margin-top: 4px; }
+  
+  .activity-log { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; }
+  .activity-log .log-line { padding: 1px 0; }
+  .activity-log .log-time { color: var(--muted); }
+  .activity-log .log-info { color: var(--text); }
+  .activity-log .log-warn { color: var(--yellow); }
+  .activity-log .log-error { color: var(--red); }
 </style>
 </head>
 <body>
@@ -79,8 +91,16 @@
   
   <div class="actions">
     <button id="btn-run" onclick="runReconciliation()">Run Reconciliation</button>
+    <button class="secondary" onclick="runReconciliation(true)">Re-run (incl. processed)</button>
     <button class="secondary" onclick="loadStatus()">Refresh Status</button>
     <span class="status-msg" id="status-msg"></span>
+  </div>
+  <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+  <div class="step-label" id="step-label"></div>
+  
+  <div class="section">
+    <div class="section-title">Activity Log <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px" id="log-count"></span></div>
+    <div class="activity-log" id="activity-log"><div style="color:var(--muted)">Waiting for activity...</div></div>
   </div>
   
   <div class="section" id="agencies-section" style="display:none">
@@ -110,27 +130,80 @@ async function loadStatus() {
   } catch(e) { setStatus('Error: ' + e.message); }
 }
 
-async function runReconciliation() {
+let _activityPoll = null;
+let _lastActivityTs = '';
+
+async function runReconciliation(includeProcessed = false) {
   const btn = $('btn-run');
   btn.disabled = true;
   btn.innerHTML = '<span class="loading"></span> Running...';
-  setStatus('Fetching emails, parsing CSVs, matching against DB...');
+  setStatus('Starting reconciliation...');
+  $('progress-bar').classList.add('active');
+  $('progress-fill').style.width = '5%';
+  
+  // Start polling activity log
+  _lastActivityTs = '';
+  _activityPoll = setInterval(pollActivity, 1000);
   
   try {
-    const r = await fetch('/api/run', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({max_emails: 50}) });
+    const r = await fetch('/api/run', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({max_emails: 50, include_processed: includeProcessed}) });
     const d = await r.json();
     if (d.success) {
-      setStatus(`Done! ${d.emails_fetched} emails, ${d.remittances_parsed} remittances parsed, ${d.reports} reports generated.`);
+      const msg = d.message || `Done! ${d.emails_fetched} emails, ${d.remittances_parsed} remittances parsed, ${d.reports} reports generated.`;
+      setStatus(msg);
       updateSummary(d.summary);
-      loadReports();
+      if (d.reports > 0) loadReports();
+      $('progress-fill').style.width = '100%';
+      $('step-label').textContent = '✓ Complete';
     } else {
       setStatus('Error: ' + d.error);
+      $('step-label').textContent = '✗ Failed: ' + d.error;
     }
-  } catch(e) { setStatus('Error: ' + e.message); }
+  } catch(e) {
+    setStatus('Error: ' + e.message);
+    $('step-label').textContent = '✗ Error: ' + e.message;
+  }
+  
+  // Final poll then stop
+  setTimeout(() => { pollActivity(); clearInterval(_activityPoll); }, 1500);
   
   btn.disabled = false;
   btn.textContent = 'Run Reconciliation';
+  setTimeout(() => { $('progress-bar').classList.remove('active'); }, 3000);
 }
+
+async function pollActivity() {
+  try {
+    const r = await fetch('/api/activity?since=' + encodeURIComponent(_lastActivityTs));
+    const entries = await r.json();
+    if (entries.length === 0) return;
+    
+    const log = $('activity-log');
+    // Clear placeholder
+    if (log.querySelector('div[style]')) log.innerHTML = '';
+    
+    for (const e of entries) {
+      const cls = e.level === 'ERROR' ? 'log-error' : e.level === 'WARNING' ? 'log-warn' : 'log-info';
+      const div = document.createElement('div');
+      div.className = 'log-line';
+      div.innerHTML = `<span class="log-time">${e.ts.slice(11,19)}</span> <span class="${cls}">${escHtml(e.message)}</span>`;
+      log.appendChild(div);
+      _lastActivityTs = e.ts;
+    }
+    log.scrollTop = log.scrollHeight;
+    $('log-count').textContent = `(${log.children.length} entries)`;
+    
+    // Update progress bar from status
+    const sr = await fetch('/api/status');
+    const sd = await sr.json();
+    if (sd.run_in_progress) {
+      $('progress-fill').style.width = sd.run_progress + '%';
+      $('step-label').textContent = sd.run_step;
+    }
+  } catch(e) { /* ignore */ }
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function updateSummary(s) {
   if (!s) return;
@@ -209,6 +282,7 @@ function toggle(i) {
 }
 
 loadStatus();
+pollActivity();
 </script>
 </body>
 </html>
