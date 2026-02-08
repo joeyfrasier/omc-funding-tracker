@@ -11,6 +11,7 @@ from gmail_client import fetch_all_remittances, fetch_emails, mark_processed, lo
 from csv_parser import parse_email_attachments, Remittance
 from matcher import reconcile, reconcile_batch, ReconciliationReport
 from db_client import get_omc_payments, get_omc_payruns, status_label
+from email_db import store_email, store_reconciliation, get_all_emails, get_email_detail, get_stats
 
 # --- Activity Log (in-memory ring buffer for UI streaming) ---
 _activity_log = deque(maxlen=200)
@@ -118,6 +119,11 @@ def run_reconciliation():
         
         logger.info("Step 1 complete: %d emails fetched", len(emails))
         
+        # Store emails in database
+        for email in emails:
+            store_email(email)
+        logger.info("Stored %d emails in database", len(emails))
+        
         # Step 2: Parse CSVs
         _cache['run_step'] = f'Parsing {len(emails)} email attachments...'
         _cache['run_progress'] = 40
@@ -167,6 +173,13 @@ def run_reconciliation():
         reports = reconcile_batch(all_remittances)
         _cache['run_progress'] = 90
         logger.info("Step 3 complete: %d reconciliation reports generated", len(reports))
+        
+        # Store reconciliation results in database
+        for report in reports:
+            email_id = report.remittance.source_email_id
+            if email_id:
+                store_reconciliation(email_id, report)
+        logger.info("Stored %d reconciliation reports in database", len(reports))
         
         # Step 4: Mark processed
         _cache['run_step'] = 'Marking emails as processed...'
@@ -276,6 +289,31 @@ def get_reports():
         })
     
     return jsonify(result)
+
+
+@app.route('/api/processed')
+def processed_emails():
+    """Get all processed emails from the database."""
+    limit = request.args.get('limit', 200, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    emails = get_all_emails(limit=limit, offset=offset)
+    stats = get_stats()
+    return jsonify({'emails': emails, 'stats': stats})
+
+
+@app.route('/api/processed/<email_id>')
+def processed_email_detail(email_id):
+    """Get full detail for a processed email."""
+    detail = get_email_detail(email_id)
+    if not detail:
+        return jsonify({'error': 'Email not found'}), 404
+    return jsonify(detail)
+
+
+@app.route('/processed')
+def processed_view():
+    """Processed emails display page."""
+    return render_template('processed.html')
 
 
 @app.route('/api/db/payments')

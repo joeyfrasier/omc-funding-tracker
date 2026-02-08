@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processed Emails — OMC Funding</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #09090b; color: #e4e4e7; font-family: 'Inter', -apple-system, sans-serif; }
+        a { color: #60a5fa; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+        h1 { font-size: 24px; font-weight: 600; }
+        .nav { display: flex; gap: 16px; }
+        .nav a { padding: 8px 16px; border: 1px solid #27272a; border-radius: 8px; font-size: 14px; }
+        .nav a:hover { background: #18181b; text-decoration: none; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .stat-card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px; }
+        .stat-label { font-size: 12px; color: #71717a; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .stat-value { font-size: 28px; font-weight: 700; }
+        .stat-value.green { color: #4ade80; }
+        .stat-value.yellow { color: #facc15; }
+        .stat-value.red { color: #f87171; }
+
+        .source-pills { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+        .pill { background: #27272a; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #a1a1aa; }
+
+        table { width: 100%; border-collapse: collapse; }
+        thead th { text-align: left; font-size: 12px; color: #71717a; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px 16px; border-bottom: 1px solid #27272a; }
+        tbody td { padding: 14px 16px; border-bottom: 1px solid #1c1c1e; font-size: 14px; }
+        tbody tr:hover { background: #18181b; }
+        tbody tr { cursor: pointer; }
+
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-matched { background: #052e16; color: #4ade80; }
+        .badge-mismatch { background: #422006; color: #facc15; }
+        .badge-notfound { background: #450a0a; color: #f87171; }
+        .badge-manual { background: #1e1b4b; color: #818cf8; }
+        .badge-source { background: #27272a; color: #a1a1aa; }
+
+        .amount { font-variant-numeric: tabular-nums; text-align: right; }
+        .date { color: #a1a1aa; white-space: nowrap; }
+
+        /* Detail modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: flex-start; padding: 40px; overflow-y: auto; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #18181b; border: 1px solid #27272a; border-radius: 16px; max-width: 900px; width: 100%; padding: 32px; }
+        .modal h2 { font-size: 18px; margin-bottom: 16px; }
+        .modal .close-btn { float: right; background: none; border: none; color: #71717a; font-size: 24px; cursor: pointer; }
+        .modal .close-btn:hover { color: #e4e4e7; }
+        .detail-table { width: 100%; margin-top: 16px; }
+        .detail-table th { font-size: 11px; }
+        .detail-table td { font-size: 13px; padding: 10px 12px; }
+
+        .empty { text-align: center; padding: 80px 0; color: #52525b; }
+        .empty h2 { font-size: 20px; margin-bottom: 8px; color: #71717a; }
+
+        .loading { text-align: center; padding: 60px; color: #71717a; }
+        .auto-refresh { font-size: 12px; color: #52525b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Processed Emails</h1>
+                <span class="auto-refresh" id="refresh-status">Auto-refreshes every 30s</span>
+            </div>
+            <nav class="nav">
+                <a href="/">Dashboard</a>
+                <a href="/processed">Processed</a>
+            </nav>
+        </header>
+
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card"><div class="stat-label">Total Emails</div><div class="stat-value" id="stat-emails">—</div></div>
+            <div class="stat-card"><div class="stat-label">Remittances</div><div class="stat-value" id="stat-remittances">—</div></div>
+            <div class="stat-card"><div class="stat-label">Matched</div><div class="stat-value green" id="stat-matched">—</div></div>
+            <div class="stat-card"><div class="stat-label">Mismatched</div><div class="stat-value yellow" id="stat-mismatched">—</div></div>
+            <div class="stat-card"><div class="stat-label">Not Found</div><div class="stat-value red" id="stat-notfound">—</div></div>
+            <div class="stat-card"><div class="stat-label">Total Value</div><div class="stat-value" id="stat-value">—</div></div>
+        </div>
+
+        <div class="source-pills" id="source-pills"></div>
+
+        <div id="email-list">
+            <div class="loading">Loading processed emails...</div>
+        </div>
+
+        <div class="modal-overlay" id="detail-modal">
+            <div class="modal">
+                <button class="close-btn" onclick="closeDetail()">&times;</button>
+                <div id="detail-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let refreshTimer;
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/processed');
+                const data = await res.json();
+                renderStats(data.stats);
+                renderEmails(data.emails);
+                document.getElementById('refresh-status').textContent = `Last updated: ${new Date().toLocaleTimeString()} · Auto-refreshes every 30s`;
+            } catch (e) {
+                document.getElementById('email-list').innerHTML = `<div class="empty"><h2>Error loading data</h2><p>${e.message}</p></div>`;
+            }
+        }
+
+        function renderStats(stats) {
+            document.getElementById('stat-emails').textContent = stats.total_emails;
+            document.getElementById('stat-remittances').textContent = stats.total_remittances;
+            document.getElementById('stat-matched').textContent = stats.matched;
+            document.getElementById('stat-mismatched').textContent = stats.mismatched;
+            document.getElementById('stat-notfound').textContent = stats.not_found;
+            document.getElementById('stat-value').textContent = '$' + (stats.total_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+            const pills = document.getElementById('source-pills');
+            pills.innerHTML = Object.entries(stats.sources || {}).map(([src, cnt]) =>
+                `<span class="pill">${src}: ${cnt}</span>`
+            ).join('');
+        }
+
+        function renderEmails(emails) {
+            if (!emails || emails.length === 0) {
+                document.getElementById('email-list').innerHTML = `<div class="empty"><h2>No processed emails yet</h2><p>Run a reconciliation from the <a href="/">Dashboard</a> to start building history.</p></div>`;
+                return;
+            }
+
+            let html = `<table>
+                <thead><tr>
+                    <th>Date</th><th>Source</th><th>Subject</th><th>Attachments</th>
+                    <th class="amount">Amount</th><th>Status</th>
+                </tr></thead><tbody>`;
+
+            for (const e of emails) {
+                const matched = e.total_matched || 0;
+                const mismatched = e.total_mismatched || 0;
+                const notFound = e.total_not_found || 0;
+                const total = matched + mismatched + notFound;
+
+                let statusBadges = '';
+                if (e.manual_review) {
+                    statusBadges = '<span class="badge badge-manual">Manual Review</span>';
+                } else if (e.remittance_count > 0) {
+                    if (matched > 0) statusBadges += `<span class="badge badge-matched">${matched} matched</span> `;
+                    if (mismatched > 0) statusBadges += `<span class="badge badge-mismatch">${mismatched} mismatch</span> `;
+                    if (notFound > 0) statusBadges += `<span class="badge badge-notfound">${notFound} missing</span>`;
+                } else {
+                    statusBadges = '<span class="badge badge-source">pending</span>';
+                }
+
+                const amount = e.total_amount ? '$' + e.total_amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+                const date = e.email_date ? new Date(e.email_date).toLocaleDateString() : e.fetched_at?.slice(0, 10) || '—';
+
+                html += `<tr onclick="showDetail('${e.id}')">
+                    <td class="date">${date}</td>
+                    <td><span class="badge badge-source">${e.source}</span></td>
+                    <td>${escapeHtml(e.subject || '(no subject)')}</td>
+                    <td>${e.attachment_count}</td>
+                    <td class="amount">${amount}</td>
+                    <td>${statusBadges}</td>
+                </tr>`;
+            }
+
+            html += '</tbody></table>';
+            document.getElementById('email-list').innerHTML = html;
+        }
+
+        async function showDetail(emailId) {
+            const modal = document.getElementById('detail-modal');
+            const content = document.getElementById('detail-content');
+            content.innerHTML = '<div class="loading">Loading...</div>';
+            modal.classList.add('active');
+
+            try {
+                const res = await fetch(`/api/processed/${emailId}`);
+                const data = await res.json();
+                
+                let html = `<h2>${escapeHtml(data.subject || '(no subject)')}</h2>
+                    <p style="color:#a1a1aa;margin-bottom:8px;">From: ${escapeHtml(data.sender || '')} · Source: ${data.source} · ${data.email_date || ''}</p>
+                    <p style="color:#52525b;font-size:12px;">Email ID: ${data.id}</p>`;
+
+                if (data.remittances && data.remittances.length > 0) {
+                    for (const rem of data.remittances) {
+                        html += `<div style="margin-top:24px;padding-top:16px;border-top:1px solid #27272a;">
+                            <h3 style="font-size:14px;color:#a1a1aa;">Remittance: ${escapeHtml(rem.agency || 'Unknown')} · Acct: ${rem.account_number || '—'} · $${(rem.payment_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</h3>
+                            <p style="font-size:12px;color:#52525b;">Processed: ${rem.processed_at || '—'} · ${rem.matched_count} matched, ${rem.mismatched_count} mismatch, ${rem.not_found_count} not found</p>`;
+
+                        if (rem.matches && rem.matches.length > 0) {
+                            html += `<table class="detail-table"><thead><tr>
+                                <th>NVC Code</th><th>Description</th><th>Company</th>
+                                <th class="amount">Remit $</th><th class="amount">DB $</th><th class="amount">Diff</th>
+                                <th>Status</th><th>Tenant</th></tr></thead><tbody>`;
+                            for (const m of rem.matches) {
+                                const statusClass = m.status === 'matched' ? 'badge-matched' : m.status === 'not_in_db' ? 'badge-notfound' : 'badge-mismatch';
+                                html += `<tr>
+                                    <td style="font-family:monospace;font-size:12px;">${m.nvc_code || ''}</td>
+                                    <td>${escapeHtml(m.description || '')}</td>
+                                    <td>${escapeHtml(m.company || '')}</td>
+                                    <td class="amount">${(m.remittance_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</td>
+                                    <td class="amount">${m.db_amount != null ? m.db_amount.toLocaleString(undefined, {minimumFractionDigits:2}) : '—'}</td>
+                                    <td class="amount">${m.difference != null ? m.difference.toFixed(2) : '—'}</td>
+                                    <td><span class="badge ${statusClass}">${m.status}</span></td>
+                                    <td>${m.tenant || ''}</td></tr>`;
+                            }
+                            html += '</tbody></table>';
+                        }
+                        html += '</div>';
+                    }
+                } else {
+                    html += '<p style="margin-top:24px;color:#52525b;">No reconciliation data for this email.</p>';
+                }
+
+                content.innerHTML = html;
+            } catch (e) {
+                content.innerHTML = `<p style="color:#f87171;">Error: ${e.message}</p>`;
+            }
+        }
+
+        function closeDetail() {
+            document.getElementById('detail-modal').classList.remove('active');
+        }
+
+        document.getElementById('detail-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeDetail();
+        });
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Initial load + auto-refresh
+        loadData();
+        refreshTimer = setInterval(loadData, 30000);
+    </script>
+</body>
+</html>
