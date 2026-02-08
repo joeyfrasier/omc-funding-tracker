@@ -6,89 +6,117 @@
 <title>Worksuite — OMC Funding Reconciliation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <style>
-  :root { --bg: #0a0a0a; --surface: #141414; --border: #2a2a2a; --text: #fafafa; --muted: #71717a; --accent: #FF4821; --accent-hover: #e63d1a; --green: #22c55e; --red: #ef4444; --yellow: #eab308; --maroon: #761900; }
+  :root {
+    --ws-orange: #FF4821;
+    --ws-maroon: #761900;
+    --ws-black: #000000;
+    --ws-white: #FFFFFF;
+    --ws-lavender: #EEEBFF;
+    --ws-mint: #C8EDD5;
+    --ws-purple: #5032A0;
+    --ws-green: #006032;
+    --ws-gray: #DDE3EB;
+    --ws-gold: #E1B347;
+    --ws-red: #D32F2F;
+    --text: #000000;
+    --muted: #52525b;
+    --border: #DDE3EB;
+    --surface: #F8F8FA;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Archivo', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
-  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
-  h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
-  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
-  
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  body { font-family: 'Archivo', -apple-system, sans-serif; background: var(--ws-white); color: var(--text); line-height: 1.5; }
+
+  /* Header bar */
+  .header-bar { background: var(--ws-maroon); color: white; padding: 20px 32px; }
+  .header-inner { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+  .header-left { display: flex; align-items: center; gap: 20px; }
+  .header-bar h1 { font-size: 22px; font-weight: 600; color: white; }
+  .header-bar .subtitle { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 2px; }
+  .header-bar a { color: white; font-size: 14px; text-decoration: none; padding: 8px 20px; border: 1px solid rgba(255,255,255,0.3); border-radius: 999px; transition: background 0.2s; }
+  .header-bar a:hover { background: rgba(255,255,255,0.1); }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
   .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-  .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
-  .stat-value.green { color: var(--green); }
-  .stat-value.red { color: var(--red); }
-  .stat-value.yellow { color: var(--yellow); }
-  
+  .stat-value.green { color: var(--ws-green); }
+  .stat-value.red { color: var(--ws-red); }
+  .stat-value.yellow { color: #b45309; }
+
   .actions { margin-bottom: 24px; display: flex; gap: 12px; align-items: center; }
-  button { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
+  button { background: var(--ws-orange); color: white; border: none; padding: 12px 24px; border-radius: 999px; font-family: 'Archivo'; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
   button:hover { opacity: 0.9; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.secondary { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; }
+  button.secondary { background: white; color: var(--text); border: 1px solid var(--border); border-radius: 999px; }
+  button.secondary:hover { background: var(--surface); }
   .status-msg { color: var(--muted); font-size: 13px; }
-  
+
   .section { margin-bottom: 32px; }
-  .section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-  
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 10px 12px; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+  th { text-align: left; padding: 10px 12px; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid var(--border); }
   td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  tr:hover td { background: rgba(255,255,255,0.02); }
-  
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
-  .badge.matched { background: rgba(34,197,94,0.15); color: var(--green); }
-  .badge.mismatch { background: rgba(234,179,8,0.15); color: var(--yellow); }
-  .badge.notfound { background: rgba(239,68,68,0.15); color: var(--red); }
-  .badge.issue { background: rgba(239,68,68,0.3); color: var(--red); }
-  
-  .report-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  tr:hover td { background: var(--surface); }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.matched { background: var(--ws-mint); color: var(--ws-green); }
+  .badge.mismatch { background: #FEF3C7; color: #92400E; }
+  .badge.notfound { background: #FEE2E2; color: var(--ws-red); }
+
+  .report-card { background: var(--ws-white); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
   .report-header { padding: 16px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-  .report-header:hover { background: rgba(255,255,255,0.02); }
-  .report-title { font-weight: 600; font-size: 14px; }
+  .report-header:hover { background: var(--surface); }
+  .report-title { font-weight: 700; font-size: 14px; }
   .report-meta { color: var(--muted); font-size: 12px; display: flex; gap: 16px; margin-top: 4px; }
   .report-badges { display: flex; gap: 6px; }
   .report-body { padding: 0 20px 16px; display: none; }
   .report-body.open { display: block; }
-  
+
   .agency-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .agency-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-  .agency-name { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  .agency-name { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
   .agency-stats { font-size: 12px; color: var(--muted); }
   .agency-stats span { margin-right: 12px; }
-  
-  .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+  .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--ws-orange); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  
+
   .empty { text-align: center; padding: 48px; color: var(--muted); }
   .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
-  
+
   .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; overflow: hidden; display: none; }
   .progress-bar.active { display: block; }
-  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; width: 0%; }
-  .step-label { font-size: 12px; color: var(--accent); margin-top: 4px; }
-  
+  .progress-fill { height: 100%; background: var(--ws-orange); border-radius: 2px; transition: width 0.3s ease; width: 0%; }
+  .step-label { font-size: 12px; color: var(--ws-orange); margin-top: 4px; }
+
   .activity-log { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; }
   .activity-log .log-line { padding: 1px 0; }
   .activity-log .log-time { color: var(--muted); }
   .activity-log .log-info { color: var(--text); }
-  .activity-log .log-warn { color: var(--yellow); }
-  .activity-log .log-error { color: var(--red); }
+  .activity-log .log-warn { color: #92400E; }
+  .activity-log .log-error { color: var(--ws-red); }
 </style>
 </head>
 <body>
-<div class="container">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-    <div style="display:flex;align-items:center;gap:16px;">
-      <img src="/static/worksuite-logo.svg" alt="Worksuite" style="height:24px;filter:invert(1);">
-      <h1>OMC Funding Reconciliation</h1>
+<div class="header-bar">
+  <div class="header-inner">
+    <div class="header-left">
+      <img src="/static/logo-white.svg" alt="Worksuite" style="height:22px;">
+      <div>
+        <h1>OMC Funding Reconciliation</h1>
+        <div class="subtitle">Omnicom Pay Run Funding Solution — Match remittance emails against Worksuite pay run data</div>
+      </div>
     </div>
-    <a href="/processed" style="color:#FF4821;font-size:14px;text-decoration:none;padding:8px 16px;border:1px solid var(--border);border-radius:999px;">View Processed Emails →</a>
+    <a href="/processed">View Processed Emails →</a>
   </div>
-  <p class="subtitle">Omnicom Pay Run Funding Solution — Match remittance emails against Worksuite pay run data</p>
-  
+</div>
+
+<div class="container">
   <div class="stats" id="stats">
     <div class="stat"><div class="stat-label">Remittances</div><div class="stat-value" id="s-remittances">—</div></div>
     <div class="stat"><div class="stat-label">Total Lines</div><div class="stat-value" id="s-lines">—</div></div>
@@ -97,7 +125,7 @@
     <div class="stat"><div class="stat-label">Match Rate</div><div class="stat-value" id="s-rate">—</div></div>
     <div class="stat"><div class="stat-label">Total Value</div><div class="stat-value" id="s-value">—</div></div>
   </div>
-  
+
   <div class="actions">
     <button id="btn-run" onclick="runReconciliation()">Run Reconciliation</button>
     <button class="secondary" onclick="runReconciliation(true)">Re-run (incl. processed)</button>
@@ -106,17 +134,17 @@
   </div>
   <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
   <div class="step-label" id="step-label"></div>
-  
+
   <div class="section">
     <div class="section-title">Activity Log <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px" id="log-count"></span></div>
     <div class="activity-log" id="activity-log"><div style="color:var(--muted)">Waiting for activity...</div></div>
   </div>
-  
+
   <div class="section" id="agencies-section" style="display:none">
     <div class="section-title">Agencies</div>
     <div class="agency-list" id="agencies"></div>
   </div>
-  
+
   <div class="section">
     <div class="section-title">Reconciliation Reports</div>
     <div id="reports"><div class="empty">Click "Run Reconciliation" to fetch and match remittance emails</div></div>
@@ -149,11 +177,8 @@ async function runReconciliation(includeProcessed = false) {
   setStatus('Starting reconciliation...');
   $('progress-bar').classList.add('active');
   $('progress-fill').style.width = '5%';
-  
-  // Start polling activity log
   _lastActivityTs = '';
   _activityPoll = setInterval(pollActivity, 1000);
-  
   try {
     const r = await fetch('/api/run', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({max_emails: 50, include_processed: includeProcessed}) });
     const d = await r.json();
@@ -172,10 +197,7 @@ async function runReconciliation(includeProcessed = false) {
     setStatus('Error: ' + e.message);
     $('step-label').textContent = '✗ Error: ' + e.message;
   }
-  
-  // Final poll then stop
   setTimeout(() => { pollActivity(); clearInterval(_activityPoll); }, 1500);
-  
   btn.disabled = false;
   btn.textContent = 'Run Reconciliation';
   setTimeout(() => { $('progress-bar').classList.remove('active'); }, 3000);
@@ -186,11 +208,8 @@ async function pollActivity() {
     const r = await fetch('/api/activity?since=' + encodeURIComponent(_lastActivityTs));
     const entries = await r.json();
     if (entries.length === 0) return;
-    
     const log = $('activity-log');
-    // Clear placeholder
     if (log.querySelector('div[style]')) log.innerHTML = '';
-    
     for (const e of entries) {
       const cls = e.level === 'ERROR' ? 'log-error' : e.level === 'WARNING' ? 'log-warn' : 'log-info';
       const div = document.createElement('div');
@@ -201,8 +220,6 @@ async function pollActivity() {
     }
     log.scrollTop = log.scrollHeight;
     $('log-count').textContent = `(${log.children.length} entries)`;
-    
-    // Update progress bar from status
     const sr = await fetch('/api/status');
     const sd = await sr.json();
     if (sd.run_in_progress) {
@@ -222,7 +239,6 @@ function updateSummary(s) {
   $('s-issues').textContent = (s.mismatched || 0) + (s.not_found || 0);
   $('s-rate').textContent = s.match_rate || '—';
   $('s-value').textContent = fmt(s.total_remittance_value);
-  
   if (s.agencies && s.agencies.length) {
     $('agencies-section').style.display = '';
     $('agencies').innerHTML = s.agencies.map(a => `
@@ -231,8 +247,8 @@ function updateSummary(s) {
         <div class="agency-stats">
           <span>${a.remittances} remittance${a.remittances!=1?'s':''}</span>
           <span>${fmt(a.total)}</span>
-          <span style="color:var(--green)">${a.matched} matched</span>
-          ${a.issues ? `<span style="color:var(--red)">${a.issues} issues</span>` : ''}
+          <span style="color:var(--ws-green)">${a.matched} matched</span>
+          ${a.issues ? `<span style="color:var(--ws-red)">${a.issues} issues</span>` : ''}
         </div>
       </div>
     `).join('');
@@ -244,12 +260,10 @@ async function loadReports() {
     const r = await fetch('/api/reports');
     const reports = await r.json();
     if (!reports.length) { $('reports').innerHTML = '<div class="empty">No reports yet</div>'; return; }
-    
     $('reports').innerHTML = reports.map((rpt, i) => {
       const matchBadge = `<span class="badge matched">${rpt.matched} matched</span>`;
       const issueBadges = (rpt.mismatched ? `<span class="badge mismatch">${rpt.mismatched} mismatch</span>` : '') +
                           (rpt.not_found ? `<span class="badge notfound">${rpt.not_found} not found</span>` : '');
-      
       return `<div class="report-card">
         <div class="report-header" onclick="toggle(${i})">
           <div>
@@ -273,7 +287,7 @@ async function loadReports() {
               <td>${m.company}</td>
               <td class="mono">${fmt(m.remittance_amount)}</td>
               <td class="mono">${m.db_amount != null ? fmt(m.db_amount) : '—'}</td>
-              <td class="mono" style="color:${!m.difference ? '' : m.difference > 0 ? 'var(--yellow)' : 'var(--red)'}">${m.difference != null ? (m.difference > 0 ? '+' : '') + m.difference.toFixed(2) : ''}</td>
+              <td class="mono" style="color:${!m.difference ? '' : m.difference > 0 ? '#92400E' : 'var(--ws-red)'}">${m.difference != null ? (m.difference > 0 ? '+' : '') + m.difference.toFixed(2) : ''}</td>
               <td><span class="badge ${m.status === 'matched' ? 'matched' : m.status === 'not_in_db' ? 'notfound' : 'mismatch'}">${m.status}</span></td>
               <td>${m.tenant}</td>
               <td style="font-size:11px">${m.notes}</td>
@@ -285,11 +299,7 @@ async function loadReports() {
   } catch(e) { console.error(e); }
 }
 
-function toggle(i) {
-  const el = document.getElementById('rb-' + i);
-  el.classList.toggle('open');
-}
-
+function toggle(i) { document.getElementById('rb-' + i).classList.toggle('open'); }
 loadStatus();
 pollActivity();
 </script>

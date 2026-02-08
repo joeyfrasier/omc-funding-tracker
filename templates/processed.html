@@ -6,71 +6,86 @@
     <title>Processed Emails — Worksuite OMC Funding</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --ws-orange: #FF4821;
+            --ws-maroon: #761900;
+            --ws-black: #000000;
+            --ws-white: #FFFFFF;
+            --ws-lavender: #EEEBFF;
+            --ws-mint: #C8EDD5;
+            --ws-green: #006032;
+            --ws-gray: #DDE3EB;
+            --ws-red: #D32F2F;
+            --text: #000000;
+            --muted: #52525b;
+            --border: #DDE3EB;
+            --surface: #F8F8FA;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0a; color: #e4e4e7; font-family: 'Archivo', -apple-system, sans-serif; }
-        a { color: #FF4821; text-decoration: none; }
+        body { background: var(--ws-white); color: var(--text); font-family: 'Archivo', -apple-system, sans-serif; }
+        a { color: var(--ws-orange); text-decoration: none; }
         a:hover { text-decoration: underline; }
 
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-        
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
-        h1 { font-size: 24px; font-weight: 600; }
-        .nav { display: flex; gap: 16px; }
-        .nav a { padding: 8px 16px; border: 1px solid #2a2a2a; border-radius: 999px; font-size: 14px; }
-        .nav a:hover { background: #18181b; text-decoration: none; }
+        .header-bar { background: var(--ws-maroon); color: white; padding: 20px 32px; }
+        .header-inner { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .header-left { display: flex; align-items: center; gap: 20px; }
+        .header-bar h1 { font-size: 22px; font-weight: 600; color: white; }
+        .auto-refresh { font-size: 12px; color: rgba(255,255,255,0.5); margin-left: 12px; }
+        .nav { display: flex; gap: 12px; }
+        .nav a { color: white; padding: 8px 20px; border: 1px solid rgba(255,255,255,0.3); border-radius: 999px; font-size: 14px; text-decoration: none; transition: background 0.2s; }
+        .nav a:hover { background: rgba(255,255,255,0.1); text-decoration: none; }
 
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
-        .stat-card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px; }
-        .stat-label { font-size: 12px; color: #71717a; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 28px 32px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+        .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+        .stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
         .stat-value { font-size: 28px; font-weight: 700; }
-        .stat-value.green { color: #4ade80; }
-        .stat-value.yellow { color: #facc15; }
-        .stat-value.red { color: #f87171; }
+        .stat-value.green { color: var(--ws-green); }
+        .stat-value.yellow { color: #92400E; }
+        .stat-value.red { color: var(--ws-red); }
 
         .source-pills { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-        .pill { background: #27272a; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #a1a1aa; }
+        .pill { background: var(--ws-lavender); border-radius: 999px; padding: 4px 14px; font-size: 12px; font-weight: 500; color: #5032A0; }
 
         table { width: 100%; border-collapse: collapse; }
-        thead th { text-align: left; font-size: 12px; color: #71717a; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px 16px; border-bottom: 1px solid #27272a; }
-        tbody td { padding: 14px 16px; border-bottom: 1px solid #1c1c1e; font-size: 14px; }
-        tbody tr:hover { background: #18181b; }
+        thead th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 16px; border-bottom: 2px solid var(--border); }
+        tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        tbody tr:hover { background: var(--surface); }
         tbody tr { cursor: pointer; }
 
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
-        .badge-matched { background: #052e16; color: #4ade80; }
-        .badge-mismatch { background: #422006; color: #facc15; }
-        .badge-notfound { background: #450a0a; color: #f87171; }
-        .badge-manual { background: #1e1b4b; color: #818cf8; }
-        .badge-source { background: #27272a; color: #a1a1aa; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .badge-matched { background: var(--ws-mint); color: var(--ws-green); }
+        .badge-mismatch { background: #FEF3C7; color: #92400E; }
+        .badge-notfound { background: #FEE2E2; color: var(--ws-red); }
+        .badge-manual { background: var(--ws-lavender); color: #5032A0; }
+        .badge-source { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
 
         .amount { font-variant-numeric: tabular-nums; text-align: right; }
-        .date { color: #a1a1aa; white-space: nowrap; }
+        .date { color: var(--muted); white-space: nowrap; }
 
-        /* Detail modal */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: flex-start; padding: 40px; overflow-y: auto; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; justify-content: center; align-items: flex-start; padding: 40px; overflow-y: auto; }
         .modal-overlay.active { display: flex; }
-        .modal { background: #18181b; border: 1px solid #27272a; border-radius: 16px; max-width: 900px; width: 100%; padding: 32px; }
+        .modal { background: white; border: 1px solid var(--border); border-radius: 16px; max-width: 900px; width: 100%; padding: 32px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
         .modal h2 { font-size: 18px; margin-bottom: 16px; }
-        .modal .close-btn { float: right; background: none; border: none; color: #71717a; font-size: 24px; cursor: pointer; }
-        .modal .close-btn:hover { color: #e4e4e7; }
+        .modal .close-btn { float: right; background: none; border: none; color: var(--muted); font-size: 24px; cursor: pointer; }
+        .modal .close-btn:hover { color: var(--text); }
         .detail-table { width: 100%; margin-top: 16px; }
         .detail-table th { font-size: 11px; }
         .detail-table td { font-size: 13px; padding: 10px 12px; }
 
-        .empty { text-align: center; padding: 80px 0; color: #52525b; }
-        .empty h2 { font-size: 20px; margin-bottom: 8px; color: #71717a; }
-
-        .loading { text-align: center; padding: 60px; color: #71717a; }
-        .auto-refresh { font-size: 12px; color: #52525b; }
+        .empty { text-align: center; padding: 80px 0; color: var(--muted); }
+        .empty h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
+        .loading { text-align: center; padding: 60px; color: var(--muted); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div style="display:flex;align-items:center;gap:16px;">
-                <img src="/static/worksuite-logo.svg" alt="Worksuite" style="height:22px;filter:invert(1);">
+    <div class="header-bar">
+        <div class="header-inner">
+            <div class="header-left">
+                <img src="/static/logo-white.svg" alt="Worksuite" style="height:22px;">
                 <h1>Processed Emails</h1>
                 <span class="auto-refresh" id="refresh-status">Auto-refreshes every 30s</span>
             </div>
@@ -78,8 +93,10 @@
                 <a href="/">Dashboard</a>
                 <a href="/processed">Processed</a>
             </nav>
-        </header>
+        </div>
+    </div>
 
+    <div class="container">
         <div class="stats-grid" id="stats-grid">
             <div class="stat-card"><div class="stat-label">Total Emails</div><div class="stat-value" id="stat-emails">—</div></div>
             <div class="stat-card"><div class="stat-label">Remittances</div><div class="stat-value" id="stat-remittances">—</div></div>
@@ -125,7 +142,6 @@
             document.getElementById('stat-mismatched').textContent = stats.mismatched;
             document.getElementById('stat-notfound').textContent = stats.not_found;
             document.getElementById('stat-value').textContent = '$' + (stats.total_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-
             const pills = document.getElementById('source-pills');
             pills.innerHTML = Object.entries(stats.sources || {}).map(([src, cnt]) =>
                 `<span class="pill">${src}: ${cnt}</span>`
@@ -137,19 +153,14 @@
                 document.getElementById('email-list').innerHTML = `<div class="empty"><h2>No processed emails yet</h2><p>Run a reconciliation from the <a href="/">Dashboard</a> to start building history.</p></div>`;
                 return;
             }
-
-            let html = `<table>
-                <thead><tr>
-                    <th>Date</th><th>Source</th><th>Subject</th><th>Attachments</th>
-                    <th class="amount">Amount</th><th>Status</th>
-                </tr></thead><tbody>`;
-
+            let html = `<table><thead><tr>
+                <th>Date</th><th>Source</th><th>Subject</th><th>Attachments</th>
+                <th class="amount">Amount</th><th>Status</th>
+            </tr></thead><tbody>`;
             for (const e of emails) {
                 const matched = e.total_matched || 0;
                 const mismatched = e.total_mismatched || 0;
                 const notFound = e.total_not_found || 0;
-                const total = matched + mismatched + notFound;
-
                 let statusBadges = '';
                 if (e.manual_review) {
                     statusBadges = '<span class="badge badge-manual">Manual Review</span>';
@@ -160,10 +171,8 @@
                 } else {
                     statusBadges = '<span class="badge badge-source">pending</span>';
                 }
-
                 const amount = e.total_amount ? '$' + e.total_amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
                 const date = e.email_date ? new Date(e.email_date).toLocaleDateString() : e.fetched_at?.slice(0, 10) || '—';
-
                 html += `<tr onclick="showDetail('${e.id}')">
                     <td class="date">${date}</td>
                     <td><span class="badge badge-source">${e.source}</span></td>
@@ -173,7 +182,6 @@
                     <td>${statusBadges}</td>
                 </tr>`;
             }
-
             html += '</tbody></table>';
             document.getElementById('email-list').innerHTML = html;
         }
@@ -183,21 +191,17 @@
             const content = document.getElementById('detail-content');
             content.innerHTML = '<div class="loading">Loading...</div>';
             modal.classList.add('active');
-
             try {
                 const res = await fetch(`/api/processed/${emailId}`);
                 const data = await res.json();
-                
                 let html = `<h2>${escapeHtml(data.subject || '(no subject)')}</h2>
-                    <p style="color:#a1a1aa;margin-bottom:8px;">From: ${escapeHtml(data.sender || '')} · Source: ${data.source} · ${data.email_date || ''}</p>
-                    <p style="color:#52525b;font-size:12px;">Email ID: ${data.id}</p>`;
-
+                    <p style="color:var(--muted);margin-bottom:8px;">From: ${escapeHtml(data.sender || '')} · Source: ${data.source} · ${data.email_date || ''}</p>
+                    <p style="color:var(--muted);font-size:12px;">Email ID: ${data.id}</p>`;
                 if (data.remittances && data.remittances.length > 0) {
                     for (const rem of data.remittances) {
-                        html += `<div style="margin-top:24px;padding-top:16px;border-top:1px solid #27272a;">
-                            <h3 style="font-size:14px;color:#a1a1aa;">Remittance: ${escapeHtml(rem.agency || 'Unknown')} · Acct: ${rem.account_number || '—'} · $${(rem.payment_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</h3>
-                            <p style="font-size:12px;color:#52525b;">Processed: ${rem.processed_at || '—'} · ${rem.matched_count} matched, ${rem.mismatched_count} mismatch, ${rem.not_found_count} not found</p>`;
-
+                        html += `<div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);">
+                            <h3 style="font-size:14px;font-weight:700;">Remittance: ${escapeHtml(rem.agency || 'Unknown')} · Acct: ${rem.account_number || '—'} · $${(rem.payment_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</h3>
+                            <p style="font-size:12px;color:var(--muted);">Processed: ${rem.processed_at || '—'} · ${rem.matched_count} matched, ${rem.mismatched_count} mismatch, ${rem.not_found_count} not found</p>`;
                         if (rem.matches && rem.matches.length > 0) {
                             html += `<table class="detail-table"><thead><tr>
                                 <th>NVC Code</th><th>Description</th><th>Company</th>
@@ -220,30 +224,17 @@
                         html += '</div>';
                     }
                 } else {
-                    html += '<p style="margin-top:24px;color:#52525b;">No reconciliation data for this email.</p>';
+                    html += '<p style="margin-top:24px;color:var(--muted);">No reconciliation data for this email.</p>';
                 }
-
                 content.innerHTML = html;
             } catch (e) {
-                content.innerHTML = `<p style="color:#f87171;">Error: ${e.message}</p>`;
+                content.innerHTML = `<p style="color:var(--ws-red);">Error: ${e.message}</p>`;
             }
         }
 
-        function closeDetail() {
-            document.getElementById('detail-modal').classList.remove('active');
-        }
-
-        document.getElementById('detail-modal').addEventListener('click', function(e) {
-            if (e.target === this) closeDetail();
-        });
-
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
-
-        // Initial load + auto-refresh
+        function closeDetail() { document.getElementById('detail-modal').classList.remove('active'); }
+        document.getElementById('detail-modal').addEventListener('click', function(e) { if (e.target === this) closeDetail(); });
+        function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
         loadData();
         refreshTimer = setInterval(loadData, 30000);
     </script>
