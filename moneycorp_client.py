@@ -1,10 +1,13 @@
 """MoneyCorp API client for payment cross-referencing."""
+import logging
 import os
 import time
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = os.getenv('MONEYCORP_API_URL', 'https://corpapi.moneycorp.com')
 LOGIN_ID = os.getenv('MONEYCORP_LOGIN_ID', 'ShortlistApi')
@@ -18,15 +21,17 @@ def authenticate():
     """Get fresh JWT token from MoneyCorp."""
     global _token, _token_expiry
     
+    logger.info("Authenticating with MoneyCorp API at %s (login: %s)", BASE_URL, LOGIN_ID)
     resp = requests.post(f'{BASE_URL}/login', json={
         'loginId': LOGIN_ID,
         'apiKey': API_KEY,
     }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    _token = data.get('token') or data.get('access_token')
+    _token = data.get('token') or data.get('access_token') or (data.get('data', {}) or {}).get('accessToken')
     # Token expires in 900s (15 min), refresh at 800s
     _token_expiry = time.time() + 800
+    logger.info("MoneyCorp authentication successful (token expires in ~13min)")
     return _token
 
 

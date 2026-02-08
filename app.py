@@ -1,5 +1,6 @@
 """Web dashboard for OMC Pay Run Funding Reconciliation."""
 import json
+import logging
 import traceback
 from datetime import datetime
 from decimal import Decimal
@@ -8,6 +9,14 @@ from gmail_client import fetch_all_remittances, fetch_emails, mark_processed, lo
 from csv_parser import parse_email_attachments, Remittance
 from matcher import reconcile, reconcile_batch, ReconciliationReport
 from db_client import get_omc_payments, get_omc_payruns, status_label
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -44,22 +53,33 @@ def run_reconciliation():
         max_emails = request.json.get('max_emails', 20) if request.json else 20
         
         # Step 1: Fetch emails
+        logger.info("=== RECONCILIATION RUN STARTED (max_emails=%d) ===", max_emails)
+        logger.info("Step 1/4: Fetching remittance emails...")
         emails = fetch_all_remittances(max_per_source=max_emails)
+        logger.info("Step 1 complete: %d emails fetched", len(emails))
         
         # Step 2: Parse CSVs
+        logger.info("Step 2/4: Parsing CSV attachments...")
         all_remittances = []
+        manual_count = 0
         for email in emails:
             if email.get('manual_review'):
+                manual_count += 1
                 continue
             parsed = parse_email_attachments(email)
             all_remittances.extend(parsed)
+        logger.info("Step 2 complete: %d remittances parsed (%d emails skipped for manual review)", len(all_remittances), manual_count)
         
         # Step 3: Reconcile
+        logger.info("Step 3/4: Reconciling against database...")
         reports = reconcile_batch(all_remittances)
+        logger.info("Step 3 complete: %d reconciliation reports generated", len(reports))
         
         # Step 4: Mark processed
+        logger.info("Step 4/4: Marking emails as processed...")
         processed_ids = [e['id'] for e in emails]
         mark_processed(processed_ids)
+        logger.info("Step 4 complete: %d emails marked as processed", len(processed_ids))
         
         # Cache results
         _cache['last_run'] = datetime.now().isoformat()
@@ -67,16 +87,20 @@ def run_reconciliation():
         _cache['emails_fetched'] = len(emails)
         _cache['errors'] = []
         
+        summary = _build_summary(reports)
+        logger.info("=== RECONCILIATION RUN COMPLETE === Match rate: %s | Total value: $%s",
+                    summary.get('match_rate', 'N/A'), f"{summary.get('total_remittance_value', 0):,.2f}")
+        
         return jsonify({
             'success': True,
             'emails_fetched': len(emails),
             'remittances_parsed': len(all_remittances),
             'reports': len(reports),
-            'summary': _build_summary(reports),
+            'summary': summary,
         })
     except Exception as e:
         _cache['errors'].append(str(e))
-        traceback.print_exc()
+        logger.error("Reconciliation run failed: %s", e, exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -203,6 +227,5 @@ def _build_summary(reports):
 
 
 if __name__ == '__main__':
-    print("Starting OMC Funding Reconciliation Dashboard...")
-    print("Access at http://0.0.0.0:8501")
+    logger.info("Starting OMC Funding Reconciliation Dashboard on http://0.0.0.0:8501")
     app.run(host='0.0.0.0', port=8501, debug=False)

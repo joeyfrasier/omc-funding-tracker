@@ -1,8 +1,11 @@
 """Parser for Omnicom remittance CSV files (OASYS and D365 ACH format)."""
+import logging
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -114,6 +117,7 @@ def parse_csv(data: bytes, source_type: str = 'oasys', email_id: str = '', subje
                     continue
     
     if not account_number and not remittance_lines:
+        logger.warning("CSV parse produced no account number and no lines — skipping")
         return None
     
     # Extract agency from subject
@@ -123,7 +127,7 @@ def parse_csv(data: bytes, source_type: str = 'oasys', email_id: str = '', subje
         if m:
             agency = m.group(1).strip()
     
-    return Remittance(
+    remittance = Remittance(
         account_number=account_number,
         payment_date=payment_date,
         payment_amount=payment_amount,
@@ -133,14 +137,21 @@ def parse_csv(data: bytes, source_type: str = 'oasys', email_id: str = '', subje
         subject=subject,
         agency=agency,
     )
+    logger.info("Parsed CSV: account=%s date=%s amount=$%s lines=%d agency=%s",
+                account_number, payment_date, payment_amount, len(remittance_lines), agency or 'Unknown')
+    return remittance
 
 
 def parse_email_attachments(email_data: dict) -> List[Remittance]:
     """Parse all CSV attachments from an email dict (from gmail_client)."""
     remittances = []
-    for att in email_data.get('attachments', []):
+    attachments = email_data.get('attachments', [])
+    csv_count = sum(1 for a in attachments if a['filename'].lower().endswith('.csv'))
+    logger.info("Processing email %s: %d attachments (%d CSVs)", email_data.get('id', '?')[:12], len(attachments), csv_count)
+    for att in attachments:
         fn = att['filename'].lower()
         if fn.endswith('.csv'):
+            logger.debug("Parsing attachment: %s (%d bytes)", att['filename'], len(att['data']))
             r = parse_csv(
                 att['data'],
                 source_type=email_data.get('source', 'unknown'),
@@ -149,6 +160,10 @@ def parse_email_attachments(email_data: dict) -> List[Remittance]:
             )
             if r:
                 remittances.append(r)
+            else:
+                logger.warning("Failed to parse CSV: %s", att['filename'])
+        else:
+            logger.debug("Skipping non-CSV attachment: %s", att['filename'])
     return remittances
 
 

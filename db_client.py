@@ -1,4 +1,5 @@
 """Database client for Worksuite aggregate DB (via SSH tunnel)."""
+import logging
 import os
 from contextlib import contextmanager
 from decimal import Decimal
@@ -9,6 +10,8 @@ import psycopg2.extras
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 DB_HOST = os.getenv('DB_HOST', 'aggregate.ctq4nnj79yij.eu-west-1.rds.amazonaws.com')
 DB_PORT = int(os.getenv('DB_PORT', 5432))
@@ -37,6 +40,7 @@ OMC_TENANTS = [
 @contextmanager
 def get_connection():
     """Get a DB connection through SSH tunnel."""
+    logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)
     tunnel = SSHTunnelForwarder(
         SSH_BASTION,
         ssh_username='ec2-user',
@@ -44,6 +48,7 @@ def get_connection():
         remote_bind_address=(DB_HOST, DB_PORT),
     )
     tunnel.start()
+    logger.info("SSH tunnel established on local port %d", tunnel.local_bind_port)
     try:
         conn = psycopg2.connect(
             host='127.0.0.1',
@@ -52,10 +57,15 @@ def get_connection():
             user=DB_USER,
             password=DB_PASSWORD,
         )
+        logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
         yield conn
         conn.close()
+    except Exception as e:
+        logger.error("Database connection failed: %s", e, exc_info=True)
+        raise
     finally:
         tunnel.stop()
+        logger.info("SSH tunnel closed")
 
 
 def lookup_payments_by_nvc(nvc_codes: List[str]) -> Dict[str, dict]:
@@ -64,7 +74,10 @@ def lookup_payments_by_nvc(nvc_codes: List[str]) -> Dict[str, dict]:
     Returns dict mapping NVC code -> payment record.
     """
     if not nvc_codes:
+        logger.debug("lookup_payments_by_nvc called with empty list")
         return {}
+    
+    logger.info("Looking up %d NVC codes in database", len(nvc_codes))
     
     with get_connection() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -104,6 +117,13 @@ def lookup_payments_by_nvc(nvc_codes: List[str]) -> Dict[str, dict]:
                 if isinstance(v, Decimal):
                     row[k] = float(v)
             results[row['nvc_code']] = row
+        
+        found = len(results)
+        missing = len(nvc_codes) - found
+        logger.info("NVC lookup complete: %d/%d found, %d missing", found, len(nvc_codes), missing)
+        if missing > 0:
+            missing_codes = [c for c in nvc_codes if c not in results]
+            logger.warning("Missing NVC codes: %s", missing_codes[:10])
         return results
 
 

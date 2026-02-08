@@ -1,6 +1,7 @@
 """Gmail client for fetching Omnicom remittance emails."""
 import base64
 import json
+import logging
 import os
 from pathlib import Path
 from google.oauth2 import service_account
@@ -8,6 +9,8 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'service-account.json')
@@ -33,11 +36,14 @@ EMAIL_SOURCES = {
 
 def get_service():
     """Build authenticated Gmail service."""
+    logger.info("Authenticating Gmail service (impersonating %s)", IMPERSONATE_USER)
     creds = service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=SCOPES
     )
     creds = creds.with_subject(IMPERSONATE_USER)
-    return build('gmail', 'v1', credentials=creds)
+    service = build('gmail', 'v1', credentials=creds)
+    logger.info("Gmail service authenticated successfully")
+    return service
 
 
 def load_processed():
@@ -75,20 +81,23 @@ def fetch_emails(source_key='oasys', max_results=100, include_processed=False):
     ).execute()
     
     messages = results.get('messages', [])
+    logger.info("[%s] Query returned %d messages (processed so far: %d)", source_key, len(messages), len(processed))
     emails = []
     
     for msg_ref in messages:
         msg_id = msg_ref['id']
         if not include_processed and msg_id in processed:
+            logger.debug("[%s] Skipping already-processed message %s", source_key, msg_id)
             continue
         
         msg = service.users().messages().get(userId='me', id=msg_id, format='full').execute()
         headers = msg['payload']['headers']
         
+        subject = get_header(headers, 'Subject')
         email_data = {
             'id': msg_id,
             'source': source_key,
-            'subject': get_header(headers, 'Subject'),
+            'subject': subject,
             'from': get_header(headers, 'From'),
             'date': get_header(headers, 'Date'),
             'attachments': [],
@@ -96,6 +105,7 @@ def fetch_emails(source_key='oasys', max_results=100, include_processed=False):
         
         # Extract attachments
         _extract_attachments(service, msg_id, msg['payload'], email_data['attachments'])
+        logger.info("[%s] Fetched: %s (%d attachments)", source_key, subject[:60], len(email_data['attachments']))
         emails.append(email_data)
     
     return emails
@@ -132,21 +142,23 @@ def fetch_all_remittances(max_per_source=100):
     all_emails = []
     for key in ['oasys', 'd365_ach']:
         try:
+            logger.info("Fetching emails from source: %s (max %d)", key, max_per_source)
             emails = fetch_emails(key, max_results=max_per_source)
             all_emails.extend(emails)
-            print(f"  [{key}] Found {len(emails)} new emails")
+            logger.info("[%s] Found %d new emails", key, len(emails))
         except Exception as e:
-            print(f"  [{key}] Error: {e}")
+            logger.error("[%s] Error fetching emails: %s", key, e, exc_info=True)
     
     # LDN GSS - just count, no CSV to parse
     try:
+        logger.info("Fetching emails from source: ldn_gss (image-only, manual review)")
         ldn = fetch_emails('ldn_gss', max_results=10)
-        print(f"  [ldn_gss] Found {len(ldn)} emails (image-only, flagged for manual review)")
+        logger.info("[ldn_gss] Found %d emails (image-only, flagged for manual review)", len(ldn))
         for e in ldn:
             e['manual_review'] = True
         all_emails.extend(ldn)
     except Exception as e:
-        print(f"  [ldn_gss] Error: {e}")
+        logger.error("[ldn_gss] Error fetching emails: %s", e, exc_info=True)
     
     return all_emails
 

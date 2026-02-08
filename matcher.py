@@ -1,9 +1,12 @@
 """Matching engine: reconcile remittance data against Worksuite pay run records."""
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import List, Dict, Optional
 from csv_parser import Remittance, RemittanceLine
 from db_client import lookup_payments_by_nvc, status_label
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,10 +57,13 @@ def reconcile(remittance: Remittance, tolerance: Decimal = Decimal('0.01')) -> R
     Returns:
         ReconciliationReport with match details
     """
+    logger.info("Reconciling remittance: %s (account=%s, %d lines, $%s)",
+                remittance.subject[:50], remittance.account_number, len(remittance.lines), remittance.payment_amount)
     report = ReconciliationReport(remittance=remittance)
     report.total_remittance_amount = remittance.payment_amount
     
     if not remittance.lines:
+        logger.warning("Remittance has no lines to reconcile")
         return report
     
     # Batch lookup all NVC codes
@@ -112,18 +118,24 @@ def reconcile(remittance: Remittance, tolerance: Decimal = Decimal('0.01')) -> R
         
         report.matches.append(result)
     
+    logger.info("Reconciliation complete: %d matched, %d mismatched, %d not found (rate: %s)",
+                report.matched_count, report.mismatched_count, report.not_found_count,
+                f"{report.matched_count/len(report.matches)*100:.1f}%" if report.matches else "N/A")
     return report
 
 
 def reconcile_batch(remittances: List[Remittance]) -> List[ReconciliationReport]:
     """Reconcile multiple remittances."""
+    logger.info("Starting batch reconciliation of %d remittances", len(remittances))
     reports = []
-    for r in remittances:
+    for i, r in enumerate(remittances, 1):
         try:
+            logger.info("--- Reconciling %d/%d: %s ---", i, len(remittances), r.subject[:50])
             report = reconcile(r)
             reports.append(report)
         except Exception as e:
-            print(f"  Error reconciling {r.subject}: {e}")
+            logger.error("Error reconciling %s: %s", r.subject, e, exc_info=True)
+    logger.info("Batch reconciliation complete: %d/%d successful", len(reports), len(remittances))
     return reports
 
 
