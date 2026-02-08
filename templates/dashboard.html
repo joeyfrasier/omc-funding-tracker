@@ -3,11 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OMC Funding Reconciliation</title>
+<title>Worksuite — OMC Funding Reconciliation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
 <style>
-  :root { --bg: #09090b; --surface: #111113; --border: #27272a; --text: #fafafa; --muted: #71717a; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --yellow: #eab308; }
+  :root { --bg: #0a0a0a; --surface: #141414; --border: #2a2a2a; --text: #fafafa; --muted: #71717a; --accent: #FF4821; --accent-hover: #e63d1a; --green: #22c55e; --red: #ef4444; --yellow: #eab308; --maroon: #761900; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+  body { font-family: 'Archivo', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
   .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
   h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
   .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
@@ -21,10 +24,10 @@
   .stat-value.yellow { color: var(--yellow); }
   
   .actions { margin-bottom: 24px; display: flex; gap: 12px; align-items: center; }
-  button { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
+  button { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
   button:hover { opacity: 0.9; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.secondary { background: var(--surface); border: 1px solid var(--border); }
+  button.secondary { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; }
   .status-msg { color: var(--muted); font-size: 13px; }
   
   .section { margin-bottom: 32px; }
@@ -78,8 +81,11 @@
 <body>
 <div class="container">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-    <h1>OMC Funding Reconciliation</h1>
-    <a href="/processed" style="color:#60a5fa;font-size:14px;text-decoration:none;padding:8px 16px;border:1px solid #27272a;border-radius:8px;">View Processed Emails →</a>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <img src="/static/worksuite-logo.svg" alt="Worksuite" style="height:24px;filter:invert(1);">
+      <h1>OMC Funding Reconciliation</h1>
+    </div>
+    <a href="/processed" style="color:#FF4821;font-size:14px;text-decoration:none;padding:8px 16px;border:1px solid var(--border);border-radius:999px;">View Processed Emails →</a>
   </div>
   <p class="subtitle">Omnicom Pay Run Funding Solution — Match remittance emails against Worksuite pay run data</p>
   

@@ -44,7 +44,7 @@ logging.getLogger().addHandler(_activity_handler)
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # In-memory cache of latest results
 _cache = {
@@ -386,5 +386,5 @@ def _build_summary(reports):
 
 
 if __name__ == '__main__':
-    logger.info("Starting OMC Funding Reconciliation Dashboard on http://0.0.0.0:8501")
+    logger.info("Starting Worksuite OMC Funding Reconciliation Dashboard on http://0.0.0.0:8501")
     app.run(host='0.0.0.0', port=8501, debug=False)

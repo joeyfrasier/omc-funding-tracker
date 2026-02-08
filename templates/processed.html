@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processed Emails — OMC Funding</title>
+    <title>Processed Emails — Worksuite OMC Funding</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #09090b; color: #e4e4e7; font-family: 'Inter', -apple-system, sans-serif; }
-        a { color: #60a5fa; text-decoration: none; }
+        body { background: #0a0a0a; color: #e4e4e7; font-family: 'Archivo', -apple-system, sans-serif; }
+        a { color: #FF4821; text-decoration: none; }
         a:hover { text-decoration: underline; }
 
         .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
@@ -15,7 +18,7 @@
         header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
         h1 { font-size: 24px; font-weight: 600; }
         .nav { display: flex; gap: 16px; }
-        .nav a { padding: 8px 16px; border: 1px solid #27272a; border-radius: 8px; font-size: 14px; }
+        .nav a { padding: 8px 16px; border: 1px solid #2a2a2a; border-radius: 999px; font-size: 14px; }
         .nav a:hover { background: #18181b; text-decoration: none; }
 
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
@@ -66,7 +69,8 @@
 <body>
     <div class="container">
         <header>
-            <div>
+            <div style="display:flex;align-items:center;gap:16px;">
+                <img src="/static/worksuite-logo.svg" alt="Worksuite" style="height:22px;filter:invert(1);">
                 <h1>Processed Emails</h1>
                 <span class="auto-refresh" id="refresh-status">Auto-refreshes every 30s</span>
             </div>
