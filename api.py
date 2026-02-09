@@ -217,6 +217,8 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "agencies": agencies,
         "errors": errors,
         "services": services,
+        "sync": {s['source']: s['status'] for s in get_sync_state()},
+        "funding_count": recon_summary_data.get('partial_2way', 0) + recon_summary_data.get('full_3way', 0),
     })
 
 

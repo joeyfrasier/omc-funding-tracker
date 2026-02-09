@@ -173,6 +173,13 @@ def recalculate_match_status(nvc_code: str):
         else:
             status = 'mismatch'
             flags.append('amount_mismatch')
+    elif has_invoice and has_funding:
+        if _amounts_match(row['invoice_amount'], row['funding_amount']):
+            status = 'partial_2way'
+        else:
+            status = 'mismatch'
+            flags.append('invoice_funding_mismatch')
+        flags.append('missing_remittance')
     elif has_remittance:
         status = 'remittance_only'
         flags.append('missing_invoice')
@@ -180,6 +187,7 @@ def recalculate_match_status(nvc_code: str):
     elif has_invoice:
         status = 'invoice_only'
         flags.append('missing_remittance')
+        flags.append('missing_funding')
         flags.append('missing_funding')
     else:
         status = 'unmatched'

@@ -109,10 +109,33 @@ def sync_invoices():
 
 
 def sync_funding():
-    """Stub: would fetch MoneyCorp sub-account funding data."""
-    logger.info("sync_funding: stub — MoneyCorp integration not yet implemented")
-    update_sync_state('funding', 0, 'stub')
-    return 0
+    """Fetch MoneyCorp payments across all OMC accounts, upsert into recon DB."""
+    from moneycorp_client import get_all_omc_payments
+
+    count = 0
+    try:
+        payments = get_all_omc_payments()
+        logger.info("sync_funding: fetched %d MoneyCorp payments", len(payments))
+
+        for p in payments:
+            nvc_code = p.get('nvc_code')
+            if not nvc_code:
+                continue
+            upsert_from_funding(
+                nvc_code=nvc_code,
+                amount=float(p.get('amount') or 0),
+                account_id=str(p.get('account_id', '')),
+                date=p.get('payment_date', ''),
+            )
+            count += 1
+
+        update_sync_state('funding', count, 'ok')
+        logger.info("sync_funding: upserted %d funding records with NVC codes", count)
+    except Exception as e:
+        logger.error("sync_funding failed: %s", e)
+        update_sync_state('funding', count, f'error: {str(e)[:80]}')
+        raise
+    return count
 
 
 def run_sync_cycle():

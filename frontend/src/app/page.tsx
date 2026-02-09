@@ -90,7 +90,7 @@ function OverviewTab() {
           <MetricCard
             label="Issues"
             value={data ? data.unverified : "—"}
-            delta={data && data.unverified > 0 ? `${data.mismatched} mismatch · ${data.not_found} not in Worksuite · ${data.matched_2way} awaiting MoneyCorp` : undefined}
+            delta={data && data.unverified > 0 ? `${data.mismatched} mismatch · ${data.not_found} invoice only · ${data.matched_2way} 2-way matched (no remittance)` : undefined}
             deltaColor="red"
           />
           <MetricCard label="Total Value" value={data ? formatCurrency(data.total_value) : "—"} />
@@ -145,8 +145,8 @@ function OverviewTab() {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <StatusDot status="warn" />
-              <span className="text-sm">MoneyCorp: Token needs refresh</span>
+              <StatusDot status={data?.sync?.funding === 'ok' ? 'ok' : 'warn'} />
+              <span className="text-sm">MoneyCorp: {data?.sync?.funding === 'ok' ? `${data.funding_count || 0} payments synced` : 'Token needs refresh'}</span>
             </div>
           </div>
 
