@@ -36,6 +36,7 @@ from email_db import (
     store_email, store_reconciliation, get_all_emails,
     get_email_detail, get_stats, init_db,
 )
+import recon_db
 from recon_db import (
     get_recon_records, get_recon_record, get_recon_summary,
     get_sync_state, get_cached_payruns,
@@ -185,19 +186,46 @@ def overview(days: int = Query(7, ge=1, le=365)):
     match_rate_2way = (two_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
     unverified = total_to_verify - three_way_matched
 
-    # Agency breakdown
+    # Group breakdown with reconciliation status (all-time from recon DB)
     agencies = []
-    if payments:
-        from collections import defaultdict
-        by_tenant = defaultdict(lambda: {"count": 0, "total": 0})
-        for p in payments:
-            t = p["tenant"].replace(".worksuite.com", "")
-            by_tenant[t]["count"] += 1
-            by_tenant[t]["total"] += float(p.get("total_amount", 0) or 0)
-        agencies = sorted(
-            [{"name": k, **v} for k, v in by_tenant.items()],
-            key=lambda x: x["total"], reverse=True,
-        )
+    try:
+        import sqlite3
+        rconn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+        rconn.row_factory = sqlite3.Row
+        rows = rconn.execute("""
+            SELECT invoice_tenant,
+                   COUNT(*) as total_records,
+                   SUM(CASE WHEN match_status IN ('full_3way', 'partial_2way') THEN 1 ELSE 0 END) as reconciled,
+                   SUM(CASE WHEN match_status = 'full_3way' THEN 1 ELSE 0 END) as full_3way,
+                   SUM(CASE WHEN match_status IN ('mismatch', 'invoice_only', 'remittance_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
+                   SUM(COALESCE(invoice_amount, 0)) as total_value
+            FROM reconciliation_records
+            WHERE invoice_tenant IS NOT NULL AND invoice_tenant != ''
+            GROUP BY invoice_tenant
+            ORDER BY total_value DESC
+        """).fetchall()
+        rconn.close()
+        agencies = [{
+            "name": r['invoice_tenant'],
+            "count": r['total_records'],
+            "total": r['total_value'],
+            "reconciled_count": r['reconciled'],
+            "full_3way_count": r['full_3way'],
+            "unreconciled_count": r['unreconciled'],
+        } for r in rows]
+    except Exception:
+        # Fallback to DB payments if recon not available
+        if payments:
+            from collections import defaultdict
+            by_tenant = defaultdict(lambda: {"count": 0, "total": 0})
+            for p in payments:
+                t = p["tenant"].replace(".worksuite.com", "")
+                by_tenant[t]["count"] += 1
+                by_tenant[t]["total"] += float(p.get("total_amount", 0) or 0)
+            agencies = sorted(
+                [{"name": k, **v} for k, v in by_tenant.items()],
+                key=lambda x: x["total"], reverse=True,
+            )
 
     return serialize({
         "payments_count": len(payments),

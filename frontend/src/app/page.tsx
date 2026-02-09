@@ -79,45 +79,62 @@ function OverviewTab() {
           <MetricCard
             label="3-Way Match Rate"
             value={data ? `${data.match_rate}%` : "—"}
-            delta={data && data.match_rate_2way > 0 ? `${data.match_rate_2way}% Worksuite verified` : undefined}
+            delta={data && data.match_rate_2way > 0 ? `${data.match_rate_2way}% 2-way verified` : undefined}
             deltaColor={data && data.match_rate > 0 ? "green" : "gray"}
           />
           <MetricCard
-            label="Verified"
+            label="Fully Reconciled"
             value={data?.matched_3way ?? "—"}
-            delta={data ? `of ${data.total_lines} remittance lines` : undefined}
+            delta={data ? `of ${data.total_lines} tracked records` : undefined}
+            deltaColor="green"
           />
           <MetricCard
-            label="Issues"
+            label="Unreconciled"
             value={data ? data.unverified : "—"}
-            delta={data && data.unverified > 0 ? `${data.mismatched} mismatch · ${data.not_found} invoice only · ${data.matched_2way} 2-way matched (no remittance)` : undefined}
+            delta={data && data.unverified > 0 ? `${data.mismatched} amount mismatch · ${data.not_found} missing source` : undefined}
             deltaColor="red"
           />
-          <MetricCard label="Total Value" value={data ? formatCurrency(data.total_value) : "—"} />
+          <MetricCard
+            label="Remittance Value (Parsed)"
+            value={data ? formatCurrency(data.total_value) : "—"}
+            delta="Total from processed email CSVs"
+            deltaColor="gray"
+          />
         </div>
       </div>
 
       <div className="grid grid-cols-5 gap-8">
         <div className="col-span-3">
-          <p className="section-label mb-4">By Agency</p>
+          <p className="section-label mb-4">By Group — Reconciliation Status</p>
           {data && data.agencies.length > 0 ? (
-            <div className="space-y-2">
-              {data.agencies.slice(0, 10).map((a) => (
-                <div key={a.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50">
-                  <span className="font-semibold text-sm">{a.name}</span>
-                  <div className="flex items-center gap-6">
-                    <span className="text-sm text-gray-500">{a.count} payments</span>
-                    <span className="text-sm font-medium">{formatCurrency(a.total)}</span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between py-1 px-3 text-xs text-gray-400">
+                <span className="w-40">Group</span>
+                <span className="w-20 text-right">Records</span>
+                <span className="w-24 text-right">Total</span>
+                <span className="w-24 text-right">Reconciled</span>
+                <span className="w-24 text-right">Unreconciled</span>
+              </div>
+              {data.agencies.slice(0, 12).map((a: any) => {
+                const unrecon = a.unreconciled_count ?? 0;
+                return (
+                  <div key={a.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50">
+                    <span className="font-semibold text-sm w-40 truncate">{a.name}</span>
+                    <span className="text-sm text-gray-500 w-20 text-right">{a.count}</span>
+                    <span className="text-sm font-medium w-24 text-right">{formatCurrency(a.total)}</span>
+                    <span className={`text-sm w-24 text-right ${(a.reconciled_count || 0) > 0 ? 'text-[var(--color-ws-green)] font-medium' : 'text-gray-400'}`}>
+                      {a.reconciled_count ?? '—'}
+                    </span>
+                    <span className={`text-sm w-24 text-right ${unrecon > 0 ? 'text-[var(--color-ws-orange)] font-medium' : 'text-gray-400'}`}>
+                      {unrecon > 0 ? unrecon : '—'}
+                    </span>
                   </div>
-                </div>
-              ))}
-              {data.agencies.length > 10 && (
-                <p className="text-xs text-gray-400 pl-3">+{data.agencies.length - 10} more agencies</p>
-              )}
+                );
+              })}
             </div>
           ) : hasDbError ? (
             <div className="py-6 text-center">
-              <p className="text-sm text-gray-400 mb-1">Agency data requires database connection</p>
+              <p className="text-sm text-gray-400 mb-1">Requires database connection</p>
               <p className="text-xs text-gray-300">Connect to VPN and retry</p>
             </div>
           ) : (
@@ -126,14 +143,14 @@ function OverviewTab() {
         </div>
 
         <div className="col-span-2">
-          <p className="section-label mb-4">System Status</p>
+          <p className="section-label mb-4">Data Sources</p>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <StatusDot status={hasDbError ? "error" : "ok"} />
               <span className="text-sm">
                 {hasDbError
                   ? "Worksuite: Unreachable"
-                  : `Worksuite: ${data?.payments_count ?? 0} payments (7d)`}
+                  : `Worksuite: ${data?.payments_count ?? 0} invoices (7d)`}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -141,7 +158,7 @@ function OverviewTab() {
               <span className="text-sm">
                 {hasGmailError
                   ? "PayOps Email: Unavailable"
-                  : `PayOps Email: ${data?.processed_count ?? 0} processed`}
+                  : `PayOps Email: ${data?.processed_count ?? 0} emails · ${data?.total_remittances ?? 0} remittances`}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -151,11 +168,9 @@ function OverviewTab() {
           </div>
 
           <div className="mt-6">
-            <p className="section-label mb-3">Quick Stats</p>
-            <div className="grid grid-cols-2 gap-3">
-              <MetricCard label="Emails" value={data?.total_emails ?? 0} />
-              <MetricCard label="Remittances" value={data?.total_remittances ?? 0} />
-            </div>
+            <p className="section-label mb-3">Sync Schedule</p>
+            <p className="text-sm text-gray-500">All sources sync every 5 minutes.</p>
+            <p className="text-xs text-gray-400 mt-1">Last sync: {data?.sync?.emails === 'ok' ? 'OK' : 'Pending'}</p>
           </div>
         </div>
       </div>
