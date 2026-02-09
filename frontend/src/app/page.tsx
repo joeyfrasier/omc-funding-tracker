@@ -7,7 +7,7 @@ import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
 import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord } from "@/lib/api";
 
-const TAB_NAMES = ["Overview", "Workbench", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
+const TAB_NAMES = ["Overview", "Workbench", "Funding Emails", "Pay Runs", "Funding", "Tenants"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -947,97 +947,190 @@ function FundingEmailsTab() {
 }
 
 function EmailDetailModal({ email, onClose }: { email: EmailItem; onClose: () => void }) {
+  const [showAttachment, setShowAttachment] = useState(false);
+  const [detail, setDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   // Close on Escape
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") { if (showAttachment) setShowAttachment(false); else onClose(); } };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, showAttachment]);
+
+  const loadDetail = () => {
+    if (detail) { setShowAttachment(true); return; }
+    setDetailLoading(true);
+    setShowAttachment(true);
+    api.emailDetail(email.id)
+      .then(setDetail)
+      .catch(() => setDetail({ error: true }))
+      .finally(() => setDetailLoading(false));
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[80vh] overflow-auto"
+        className={`bg-white rounded-2xl shadow-xl flex transition-all duration-200 max-h-[85vh] ${showAttachment ? "max-w-6xl" : "max-w-3xl"} w-full`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[var(--color-ws-gray)]">
-          <div className="flex items-center gap-3">
-            <span className="badge badge-gray">{email.source}</span>
-            {email.manual_review && <span className="badge badge-orange">Manual Review</span>}
-          </div>
-          <button
-            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
-            onClick={onClose}
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-6 space-y-6">
-          <div>
-            <h2 className="text-lg font-bold mb-1">{email.subject}</h2>
-            <div className="flex items-center gap-4 text-sm text-gray-500">
-              <span>From: {email.from}</span>
-              <span>·</span>
-              <span>{email.date}</span>
+        {/* Left: Email info */}
+        <div className={`${showAttachment ? "w-1/2 border-r border-[var(--color-ws-gray)]" : "w-full"} overflow-auto flex flex-col`}>
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-[var(--color-ws-gray)]">
+            <div className="flex items-center gap-3">
+              <span className="badge badge-gray">{email.source}</span>
+              {email.manual_review && <span className="badge badge-orange">Manual Review</span>}
             </div>
+            <button
+              className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
+              onClick={onClose}
+            >
+              ✕
+            </button>
           </div>
 
-          <div>
-            <p className="section-label mb-2">Email ID</p>
-            <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">{email.id}</code>
-          </div>
-
-          {email.attachments.length > 0 && (
+          {/* Body */}
+          <div className="p-6 space-y-6 flex-1 overflow-auto">
             <div>
-              <p className="section-label mb-2">Attachments ({email.attachments.length})</p>
-              <div className="space-y-1">
-                {email.attachments.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                    <span>{a}</span>
+              <h2 className="text-lg font-bold mb-1">{email.subject}</h2>
+              <div className="flex items-center gap-4 text-sm text-gray-500">
+                <span>From: {email.from}</span>
+                <span>·</span>
+                <span>{email.date}</span>
+              </div>
+            </div>
+
+            <div>
+              <p className="section-label mb-2">Email ID</p>
+              <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">{email.id}</code>
+            </div>
+
+            {email.attachments.length > 0 && (
+              <div>
+                <p className="section-label mb-2">Attachments ({email.attachments.length})</p>
+                <div className="space-y-1">
+                  {email.attachments.map((a, i) => (
+                    <button
+                      key={i}
+                      className="flex items-center gap-2 text-sm hover:text-[var(--color-ws-orange)] transition-colors w-full text-left group"
+                      onClick={loadDetail}
+                    >
+                      <svg className="w-4 h-4 text-gray-400 group-hover:text-[var(--color-ws-orange)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                      <span className="group-hover:underline">{a}</span>
+                      <svg className="w-3 h-3 text-gray-300 group-hover:text-[var(--color-ws-orange)] ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(email as any)._raw?.remittance_count > 0 && (
+              <div className="border-t border-[var(--color-ws-gray)] pt-4">
+                <p className="section-label mb-2">Parsed Remittance Data</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-400">Remittances</p>
+                    <p className="text-lg font-bold">{(email as any)._raw.remittance_count}</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(email as any)._raw?.remittance_count > 0 && (
-            <div className="border-t border-[var(--color-ws-gray)] pt-4">
-              <p className="section-label mb-2">Parsed Remittance Data</p>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-gray-400">Remittances</p>
-                  <p className="text-lg font-bold">{(email as any)._raw.remittance_count}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Matched</p>
-                  <p className="text-lg font-bold text-[var(--color-ws-green)]">{(email as any)._raw.total_matched || 0}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Total Amount</p>
-                  <p className="text-lg font-bold">${((email as any)._raw.total_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+                  <div>
+                    <p className="text-xs text-gray-400">Matched</p>
+                    <p className="text-lg font-bold text-[var(--color-ws-green)]">{(email as any)._raw.total_matched || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Total Amount</p>
+                    <p className="text-lg font-bold">${((email as any)._raw.total_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          <div className="border-t border-[var(--color-ws-gray)] pt-4">
-            <p className="section-label mb-2">Reconciliation Status</p>
-            <p className="text-sm text-gray-500">
-              Remittance lines from this email are tracked in the reconciliation engine.
-            </p>
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-[var(--color-ws-gray)]">
+            {!showAttachment && email.attachments.length > 0 && (
+              <button className="btn btn-outline text-sm" onClick={loadDetail}>View Attachment Data</button>
+            )}
+            <button className="btn btn-outline" onClick={onClose}>Close</button>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-[var(--color-ws-gray)]">
-          <button className="btn btn-outline" onClick={onClose}>Close</button>
-        </div>
+        {/* Right: Attachment content panel */}
+        {showAttachment && (
+          <div className="w-1/2 overflow-auto flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-[var(--color-ws-gray)]">
+              <p className="section-label">Parsed Attachment Content</p>
+              <button
+                className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
+                onClick={() => setShowAttachment(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-6 flex-1 overflow-auto">
+              {detailLoading && <LoadingSkeleton rows={4} />}
+              {detail?.error && <p className="text-sm text-gray-400">Could not load attachment details.</p>}
+              {detail && !detail.error && (
+                <div className="space-y-6">
+                  {(detail.remittances || []).length === 0 && (
+                    <p className="text-sm text-gray-400">No parsed remittance data for this email.</p>
+                  )}
+                  {(detail.remittances || []).map((rem: any, ri: number) => (
+                    <div key={ri}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <p className="text-sm font-semibold">{rem.agency || "Remittance"}</p>
+                          <p className="text-xs text-gray-400">
+                            {rem.line_count || 0} lines · ${(rem.payment_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          {rem.matched_count > 0 && <span className="badge badge-green">{rem.matched_count} matched</span>}
+                          {(rem.mismatched_count || 0) > 0 && <span className="badge badge-orange">{rem.mismatched_count} mismatch</span>}
+                          {(rem.not_found_count || 0) > 0 && <span className="badge badge-lavender">{rem.not_found_count} missing</span>}
+                        </div>
+                      </div>
+                      {(rem.matches || []).length > 0 && (
+                        <div className="card p-0 overflow-hidden">
+                          <table className="ws-table text-xs">
+                            <thead>
+                              <tr>
+                                <th>NVC Code</th>
+                                <th>Description</th>
+                                <th>Remit $</th>
+                                <th>DB $</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rem.matches.map((m: any, mi: number) => (
+                                <tr key={mi}>
+                                  <td className="font-mono">{m.nvc_code}</td>
+                                  <td className="max-w-[160px] truncate">{m.description || m.company || "—"}</td>
+                                  <td>${(m.remittance_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                  <td>{m.db_amount != null ? `$${m.db_amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—"}</td>
+                                  <td>
+                                    <span className={`badge ${m.status === "matched" ? "badge-green" : m.status === "not_found" ? "badge-lavender" : "badge-orange"}`}>
+                                      {m.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1519,6 +1612,7 @@ function MoneyCorpTab() {
   const [totalCurrencies, setTotalCurrencies] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hideZeroBalance, setHideZeroBalance] = useState(true);
 
   useEffect(() => {
     api.moneyCorpAccounts()
@@ -1548,7 +1642,7 @@ function MoneyCorpTab() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-gray-500">
-        MoneyCorp sub-accounts linked to OMC tenants in Worksuite. Balances from the latest operational fetch.
+        Funding sub-accounts (MoneyCorp) linked to OMC tenants in Worksuite. Balances from the latest operational fetch.
       </p>
 
       <div className="grid grid-cols-4 gap-4">
@@ -1558,48 +1652,73 @@ function MoneyCorpTab() {
         <MetricCard label="USD Processing" value={formatCurrencyFull(totalProcessing)} />
       </div>
 
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={hideZeroBalance}
+            onChange={(e) => setHideZeroBalance(e.target.checked)}
+            className="rounded border-gray-300"
+          />
+          Hide zero-balance currencies
+        </label>
+      </div>
+
       <div className="space-y-4">
-        {accounts.map((acct) => (
-          <div key={acct.tenant} className="card">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <span className="font-semibold">{acct.tenant}</span>
-                <span className="text-xs text-gray-400 font-mono ml-3">{acct.processor_id}</span>
+        {accounts.map((acct) => {
+          const visibleCurrencies = hideZeroBalance
+            ? acct.currencies.filter((c) => (c.balance || 0) !== 0 || (c.scheduled || 0) !== 0 || (c.processing || 0) !== 0)
+            : acct.currencies;
+          const hiddenCount = acct.currencies.length - visibleCurrencies.length;
+          return (
+            <div key={acct.tenant} className="card">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <span className="font-semibold">{acct.tenant}</span>
+                  <span className="text-xs text-gray-400 font-mono ml-3">{acct.processor_id}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="badge badge-lavender">{visibleCurrencies.length} currencies</span>
+                  {hiddenCount > 0 && <span className="text-xs text-gray-400">{hiddenCount} zero hidden</span>}
+                </div>
               </div>
-              <span className="badge badge-lavender">{acct.currencies.length} currencies</span>
+              {visibleCurrencies.length > 0 ? (
+                <table className="ws-table">
+                  <thead>
+                    <tr>
+                      <th>Currency</th>
+                      <th>Balance</th>
+                      <th>Scheduled</th>
+                      <th>Processing</th>
+                      <th>Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleCurrencies.map((c) => (
+                      <tr key={c.currency}>
+                        <td><span className="badge badge-gray">{c.currency}</span></td>
+                        <td className={`text-sm font-medium ${(c.balance || 0) > 0 ? "text-[var(--color-ws-green)]" : ""}`}>
+                          {(c.balance || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="text-sm text-gray-500">
+                          {(c.scheduled || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className={`text-sm ${(c.processing || 0) > 0 ? "font-medium" : "text-gray-500"}`}>
+                          {(c.processing || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="text-sm text-gray-400">
+                          {c.last_updated ? new Date(c.last_updated).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-gray-400 py-2">All currencies have zero balance</p>
+              )}
             </div>
-            <table className="ws-table">
-              <thead>
-                <tr>
-                  <th>Currency</th>
-                  <th>Balance</th>
-                  <th>Scheduled</th>
-                  <th>Processing</th>
-                  <th>Last Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {acct.currencies.map((c) => (
-                  <tr key={c.currency}>
-                    <td><span className="badge badge-gray">{c.currency}</span></td>
-                    <td className={`text-sm font-medium ${(c.balance || 0) > 0 ? "text-[var(--color-ws-green)]" : ""}`}>
-                      {(c.balance || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="text-sm text-gray-500">
-                      {(c.scheduled || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className={`text-sm ${(c.processing || 0) > 0 ? "font-medium" : "text-gray-500"}`}>
-                      {(c.processing || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="text-sm text-gray-400">
-                      {c.last_updated ? new Date(c.last_updated).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

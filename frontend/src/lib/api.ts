@@ -207,6 +207,9 @@ export const api = {
       "/api/moneycorp/subaccounts"
     ),
 
+  emailDetail: (emailId: string) =>
+    fetchAPI<any>(`/api/emails/${encodeURIComponent(emailId)}`),
+
   // Reconciliation Queue
   reconQueue: (params: {
     status?: string; tenant?: string; flag?: string; search?: string;
