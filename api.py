@@ -33,14 +33,43 @@ from email_db import (
     store_email, store_reconciliation, get_all_emails,
     get_email_detail, get_stats, init_db,
 )
+from recon_db import (
+    get_recon_records, get_recon_record, get_recon_summary,
+    get_sync_state, get_cached_payruns,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
+
+# ── Background sync ──────────────────────────────────────────────────────
+
+async def periodic_sync():
+    while True:
+        try:
+            from sync_service import run_sync_cycle
+            run_sync_cycle()
+        except Exception as e:
+            logger.error("Periodic sync failed: %s", e)
+        await asyncio.sleep(300)  # 5 minutes
+
+
+from contextlib import asynccontextmanager
+import asyncio
+
+
+@asynccontextmanager
+async def lifespan(app):
+    task = asyncio.create_task(periodic_sync())
+    yield
+    task.cancel()
+
+
 app = FastAPI(
     title="OMC Funding Tracker API",
-    version="2.0.0",
-    description="Omnicom Pay Run Funding — Remittance ↔ DB ↔ MoneyCorp reconciliation (READ-ONLY)",
+    version="2.1.0",
+    description="Omnicom Pay Run Funding — Remittance ↔ DB ↔ MoneyCorp reconciliation",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -97,6 +126,13 @@ def overview(days: int = Query(7, ge=1, le=365)):
     except Exception:
         pass
 
+    # Pull match rates from new recon DB
+    recon_summary_data = {}
+    try:
+        recon_summary_data = get_recon_summary()
+    except Exception:
+        pass
+
     # Run DB and Gmail checks in parallel with timeout
     def _fetch_db():
         return get_omc_payments(days_back=days)
@@ -129,19 +165,21 @@ def overview(days: int = Query(7, ge=1, le=365)):
     # Currently MoneyCorp verification is not yet integrated,
     # so all "matched" items are only 2-way (remittance ↔ Worksuite).
     # Items without MoneyCorp confirmation count as unverified.
-    two_way_matched = recon_stats["matched"]
-    moneycorp_verified = 0  # TODO: populate when MoneyCorp API is integrated
-    three_way_matched = moneycorp_verified
-    
-    # Total remittance lines that should be verified
-    total_to_verify = recon_stats.get("total_matches", total_lines) or total_lines
-    
-    # 3-way match rate (0% until MoneyCorp is integrated)
+    # Use new recon DB if populated, fall back to legacy stats
+    recon_total = recon_summary_data.get('total', 0)
+    if recon_total > 0:
+        three_way_matched = recon_summary_data.get('full_3way', 0)
+        two_way_matched = recon_summary_data.get('partial_2way', 0) + three_way_matched
+        total_to_verify = recon_total
+        mismatched_count = recon_summary_data.get('mismatch', 0)
+    else:
+        two_way_matched = recon_stats["matched"]
+        three_way_matched = 0
+        total_to_verify = recon_stats.get("total_matches", total_lines) or total_lines
+        mismatched_count = recon_stats["mismatched"]
+
     match_rate_3way = (three_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
-    # 2-way match rate (remittance ↔ Worksuite only)  
     match_rate_2way = (two_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
-    
-    # Issues = anything not fully 3-way verified
     unverified = total_to_verify - three_way_matched
 
     # Agency breakdown
@@ -166,8 +204,8 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "matched_3way": three_way_matched,
         "matched_2way": two_way_matched,
         "matched": two_way_matched,  # backward compat
-        "mismatched": recon_stats["mismatched"],
-        "not_found": recon_stats["not_found"],
+        "mismatched": mismatched_count if recon_total > 0 else recon_stats["mismatched"],
+        "not_found": recon_summary_data.get('remittance_only', 0) + recon_summary_data.get('invoice_only', 0) if recon_total > 0 else recon_stats["not_found"],
         "unverified": unverified,
         "total_lines": total_to_verify,
         "total_value": recon_stats.get("total_value", 0),
@@ -464,6 +502,81 @@ def config():
         "gmail_user": os.getenv("GOOGLE_IMPERSONATE_USER", "N/A"),
         "db_name": os.getenv("DB_NAME", "N/A"),
     }
+
+
+# ── Reconciliation Records (new auto-recon) ─────────────────────────────
+
+@app.get("/api/recon/records")
+def recon_records(
+    status: Optional[str] = Query(None),
+    tenant: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """Get reconciliation records with filters."""
+    records = get_recon_records(status=status, tenant=tenant, search=search,
+                                date_from=date_from, date_to=date_to,
+                                limit=limit, offset=offset)
+    return {"count": len(records), "records": records}
+
+
+@app.get("/api/recon/summary")
+def recon_summary():
+    """Get reconciliation summary counts by match_status."""
+    return get_recon_summary()
+
+
+@app.get("/api/recon/record/{nvc_code}")
+def recon_record_detail(nvc_code: str):
+    """Get single reconciliation record."""
+    record = get_recon_record(nvc_code)
+    if not record:
+        raise HTTPException(status_code=404, detail="NVC code not found")
+    return record
+
+
+# ── Sync Control ─────────────────────────────────────────────────────────
+
+@app.post("/api/sync/trigger")
+def trigger_sync():
+    """Trigger an immediate sync cycle."""
+    try:
+        from sync_service import run_sync_cycle
+        results = run_sync_cycle()
+        return serialize({"success": True, "results": results})
+    except Exception as e:
+        logger.error("Manual sync trigger failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sync/status")
+def sync_status():
+    """Get sync state for all sources."""
+    return {"sources": get_sync_state()}
+
+
+# ── Cached Pay Runs ──────────────────────────────────────────────────────
+
+@app.get("/api/payruns/cached")
+def cached_payruns(
+    tenant: Optional[str] = Query(None),
+    status: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """Get locally cached pay runs."""
+    runs = get_cached_payruns(tenant=tenant, status=status, date_from=date_from,
+                              date_to=date_to, search=search, sort_by=sort_by,
+                              sort_dir=sort_dir, limit=limit, offset=offset)
+    return serialize({"count": len(runs), "payruns": runs})
 
 
 if __name__ == "__main__":

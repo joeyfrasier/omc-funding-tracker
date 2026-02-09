@@ -167,70 +167,139 @@ function OverviewTab() {
 
 function FundingEmailsTab() {
   const [emails, setEmails] = useState<EmailItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState("all");
-  const [maxResults, setMaxResults] = useState(10);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [sortField, setSortField] = useState<"date" | "subject" | "source">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedEmail, setSelectedEmail] = useState<EmailItem | null>(null);
 
-  const fetchData = useCallback(() => {
-    setLoading(true);
-    setError("");
-    api.fetchEmails(source, maxResults)
-      .then((res) => setEmails(res.emails))
-      .catch((e) => setError(e.message))
+  // Load from local DB first (fast), then try live fetch
+  useEffect(() => {
+    // Try local processed emails first (always available)
+    api.processedEmails(200)
+      .then((res) => {
+        if (res.emails.length > 0) {
+          const mapped: EmailItem[] = res.emails.map((e: any) => ({
+            id: e.id || e.email_id || "",
+            source: e.source || "",
+            date: e.email_date || e.fetched_at || "",
+            subject: e.subject || "",
+            from: e.sender || "",
+            attachments: [],
+            manual_review: e.manual_review || false,
+          }));
+          setEmails(mapped);
+        }
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [source, maxResults]);
+  }, []);
+
+  // Filter + sort
+  const filtered = emails
+    .filter((e) => {
+      if (filterSource && e.source !== filterSource) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (
+          e.subject.toLowerCase().includes(q) ||
+          e.from.toLowerCase().includes(q) ||
+          e.attachments.some((a) => a.toLowerCase().includes(q)) ||
+          e.id.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const mul = sortDir === "asc" ? 1 : -1;
+      if (sortField === "date") return mul * a.date.localeCompare(b.date);
+      if (sortField === "subject") return mul * a.subject.localeCompare(b.subject);
+      return mul * a.source.localeCompare(b.source);
+    });
+
+  const toggleSort = (field: typeof sortField) => {
+    if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("desc"); }
+  };
+
+  const SortIcon = ({ field }: { field: typeof sortField }) => (
+    <span className="ml-1 text-[10px]">{sortField === field ? (sortDir === "asc" ? "↑" : "↓") : "↕"}</span>
+  );
+
+  if (loading) return <LoadingSkeleton rows={6} />;
+  if (error) return <ErrorBox message={error} />;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end gap-4">
+      {/* Search + Filters */}
+      <div className="flex items-end gap-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label className="section-label block mb-2">Search</label>
+          <input
+            type="text"
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-full"
+            placeholder="Search subject, sender, attachments…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
         <div>
           <label className="section-label block mb-2">Source</label>
           <select
             className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value)}
           >
-            <option value="all">All Sources</option>
+            <option value="">All Sources</option>
             <option value="oasys">OASYS</option>
             <option value="d365_ach">D365 ACH</option>
             <option value="ldn_gss">LDN GSS</option>
           </select>
         </div>
-        <div>
-          <label className="section-label block mb-2">Max Emails</label>
-          <input
-            type="number"
-            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-24"
-            value={maxResults}
-            min={1}
-            max={100}
-            onChange={(e) => setMaxResults(Number(e.target.value))}
-          />
-        </div>
-        <button className="btn btn-black" onClick={fetchData} disabled={loading}>
-          {loading ? "Fetching…" : "Fetch Emails"}
-        </button>
+        {(searchQuery || filterSource) && (
+          <button
+            className="text-sm text-[var(--color-ws-orange)] font-semibold hover:underline pb-2"
+            onClick={() => { setSearchQuery(""); setFilterSource(""); }}
+          >
+            Clear
+          </button>
+        )}
       </div>
 
-      {error && <ErrorBox message={error} />}
+      <p className="text-xs text-gray-400">
+        {filtered.length} of {emails.length} emails
+        {filtered.length !== emails.length && " (filtered)"}
+        {" · Auto-synced every 5 minutes"}
+      </p>
 
-      {emails.length > 0 && (
+      {filtered.length > 0 && (
         <div className="card p-0 overflow-hidden">
           <table className="ws-table">
             <thead>
               <tr>
-                <th>Source</th>
-                <th>Date</th>
-                <th>Subject</th>
+                <th className="cursor-pointer select-none" onClick={() => toggleSort("source")}>
+                  Source <SortIcon field="source" />
+                </th>
+                <th className="cursor-pointer select-none" onClick={() => toggleSort("date")}>
+                  Date <SortIcon field="date" />
+                </th>
+                <th className="cursor-pointer select-none" onClick={() => toggleSort("subject")}>
+                  Subject <SortIcon field="subject" />
+                </th>
                 <th>From</th>
                 <th>Attachments</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {emails.map((e) => (
-                <tr key={e.id}>
+              {filtered.map((e) => (
+                <tr
+                  key={e.id}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedEmail(e)}
+                >
                   <td><span className="badge badge-gray">{e.source}</span></td>
                   <td className="text-sm text-gray-500 whitespace-nowrap">{e.date}</td>
                   <td className="text-sm max-w-md truncate">{e.subject}</td>
@@ -243,6 +312,89 @@ function FundingEmailsTab() {
           </table>
         </div>
       )}
+
+      {/* Email Detail Modal */}
+      {selectedEmail && (
+        <EmailDetailModal email={selectedEmail} onClose={() => setSelectedEmail(null)} />
+      )}
+    </div>
+  );
+}
+
+function EmailDetailModal({ email, onClose }: { email: EmailItem; onClose: () => void }) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-6" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[80vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-[var(--color-ws-gray)]">
+          <div className="flex items-center gap-3">
+            <span className="badge badge-gray">{email.source}</span>
+            {email.manual_review && <span className="badge badge-orange">Manual Review</span>}
+          </div>
+          <button
+            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-bold mb-1">{email.subject}</h2>
+            <div className="flex items-center gap-4 text-sm text-gray-500">
+              <span>From: {email.from}</span>
+              <span>·</span>
+              <span>{email.date}</span>
+            </div>
+          </div>
+
+          <div>
+            <p className="section-label mb-2">Email ID</p>
+            <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">{email.id}</code>
+          </div>
+
+          {email.attachments.length > 0 && (
+            <div>
+              <p className="section-label mb-2">Attachments ({email.attachments.length})</p>
+              <div className="space-y-1">
+                {email.attachments.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    <span>{a}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-[var(--color-ws-gray)] pt-4">
+            <p className="section-label mb-2">Reconciliation Status</p>
+            <p className="text-sm text-gray-500">
+              Remittance lines from this email are tracked in the reconciliation engine.
+              Check the Overview tab for match status.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 p-6 border-t border-[var(--color-ws-gray)]">
+          <button className="btn btn-outline" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }
