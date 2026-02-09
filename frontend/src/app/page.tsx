@@ -7,7 +7,7 @@ import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
 import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord } from "@/lib/api";
 
-const TAB_NAMES = ["Queue", "Overview", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
+const TAB_NAMES = ["Overview", "Queue", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -1586,8 +1586,8 @@ export default function Home() {
       {activeTab === -1 && searchQuery && (
         <SearchResultsView query={searchQuery} results={searchResults} loading={searchLoading} />
       )}
-      {activeTab === 0 && <QueueTab />}
-      {activeTab === 1 && <OverviewTab />}
+      {activeTab === 0 && <OverviewTab />}
+      {activeTab === 1 && <QueueTab />}
       {activeTab === 2 && <FundingEmailsTab />}
       {activeTab === 3 && <PayRunsTab />}
       {activeTab === 4 && <MoneyCorpTab />}
