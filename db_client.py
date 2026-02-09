@@ -40,14 +40,20 @@ OMC_TENANTS = [
 @contextmanager
 def get_connection():
     """Get a DB connection through SSH tunnel."""
+    import socket
+    socket.setdefaulttimeout(10)  # Global 10s timeout for SSH connection
     logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)
-    tunnel = SSHTunnelForwarder(
-        SSH_BASTION,
-        ssh_username='ec2-user',
-        ssh_pkey=SSH_KEY,
-        remote_bind_address=(DB_HOST, DB_PORT),
-    )
-    tunnel.start()
+    try:
+        tunnel = SSHTunnelForwarder(
+            (SSH_BASTION, int(os.getenv('SSH_BASTION_PORT', 22))),
+            ssh_username='ec2-user',
+            ssh_pkey=SSH_KEY,
+            remote_bind_address=(DB_HOST, DB_PORT),
+            set_keepalive=10,
+        )
+        tunnel.start()
+    finally:
+        socket.setdefaulttimeout(None)  # Reset
     logger.info("SSH tunnel established on local port %d", tunnel.local_bind_port)
     try:
         conn = psycopg2.connect(

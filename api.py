@@ -6,6 +6,7 @@ as a REST API consumed by the Next.js frontend.
 import json
 import logging
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -72,27 +73,50 @@ def health():
 
 @app.get("/api/overview")
 def overview(days: int = Query(7, ge=1, le=365)):
-    """Dashboard overview: payments + reconciliation stats."""
+    """Dashboard overview: payments + reconciliation stats.
+    
+    Resilient: runs DB/Gmail checks in parallel with a 12s timeout.
+    Returns partial data if any service is unreachable.
+    """
     errors = {}
+    services = {}
     payments = []
-    try:
-        payments = get_omc_payments(days_back=days)
-    except Exception as e:
-        errors["db"] = str(e)
-
     processed = []
-    try:
-        processed = load_processed()
-    except Exception as e:
-        errors["gmail"] = str(e)
+    recon_stats = {
+        "total_emails": 0, "total_remittances": 0,
+        "matched": 0, "mismatched": 0, "not_found": 0, "total_value": 0,
+    }
 
+    # Local stats always available (SQLite)
     try:
         recon_stats = get_stats()
     except Exception:
-        recon_stats = {
-            "total_emails": 0, "total_remittances": 0,
-            "matched": 0, "mismatched": 0, "not_found": 0, "total_value": 0,
-        }
+        pass
+
+    # Run DB and Gmail checks in parallel with timeout
+    def _fetch_db():
+        return get_omc_payments(days_back=days)
+
+    def _fetch_gmail():
+        return load_processed()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        db_future = executor.submit(_fetch_db)
+        gmail_future = executor.submit(_fetch_gmail)
+
+        try:
+            payments = db_future.result(timeout=12)
+            services["db"] = "connected"
+        except Exception as e:
+            errors["db"] = str(e)[:100]
+            services["db"] = "unreachable"
+
+        try:
+            processed = gmail_future.result(timeout=12)
+            services["gmail"] = "connected"
+        except Exception as e:
+            errors["gmail"] = str(e)[:100]
+            services["gmail"] = "unreachable"
 
     total_issues = recon_stats["mismatched"] + recon_stats["not_found"]
     total_lines = recon_stats["matched"] + total_issues
@@ -124,6 +148,7 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "total_remittances": recon_stats["total_remittances"],
         "agencies": agencies,
         "errors": errors,
+        "services": services,
     })
 
 
@@ -189,7 +214,7 @@ def payruns(days: int = Query(30, ge=1, le=365)):
         runs = get_omc_payruns(days_back=days)
         return serialize({"count": len(runs), "payruns": runs})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)[:100]}")
 
 
 @app.get("/api/payments")
@@ -199,7 +224,7 @@ def payments(days: int = Query(7, ge=1, le=365)):
         data = get_omc_payments(days_back=days)
         return serialize({"count": len(data), "payments": data[:500]})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)[:100]}")
 
 
 @app.get("/api/payments/lookup")

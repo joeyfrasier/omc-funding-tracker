@@ -24,38 +24,74 @@ function OverviewTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
+    setLoading(true);
+    setError("");
     api.overview(7)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { loadData(); }, [loadData]);
+
   if (loading) return <LoadingSkeleton rows={4} />;
-  if (error) return <ErrorBox message={error} />;
-  if (!data) return null;
+
+  // If we got an error but no data at all, show error with retry
+  if (error && !data) {
+    return (
+      <div className="space-y-4">
+        <ErrorBox message={error} />
+        <button className="btn btn-outline" onClick={loadData}>Retry</button>
+      </div>
+    );
+  }
+
+  // Render with whatever data we have (may be partial)
+  const hasDbError = data?.errors?.db;
+  const hasGmailError = data?.errors?.gmail;
 
   return (
     <div className="space-y-8">
+      {/* Service status banner when degraded */}
+      {(hasDbError || hasGmailError) && (
+        <div className="card bg-amber-50 border-amber-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <StatusDot status="warn" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Running in degraded mode</p>
+                <p className="text-xs text-amber-700">
+                  {hasDbError && "Database unreachable (SSH tunnel timeout). "}
+                  {hasGmailError && "Gmail API unavailable. "}
+                  Showing cached/local data only.
+                </p>
+              </div>
+            </div>
+            <button className="btn btn-outline text-xs" onClick={loadData}>Retry</button>
+          </div>
+        </div>
+      )}
+
       <div>
         <p className="section-label mb-4">Reconciliation Health</p>
         <div className="grid grid-cols-4 gap-4">
-          <MetricCard label="Match Rate" value={`${data.match_rate}%`} />
-          <MetricCard label="Matched" value={data.matched} />
+          <MetricCard label="Match Rate" value={data ? `${data.match_rate}%` : "—"} />
+          <MetricCard label="Matched" value={data?.matched ?? "—"} />
           <MetricCard
             label="Issues"
-            value={data.mismatched + data.not_found}
-            delta={data.mismatched + data.not_found > 0 ? `${data.mismatched} mismatch, ${data.not_found} missing` : undefined}
+            value={data ? data.mismatched + data.not_found : "—"}
+            delta={data && (data.mismatched + data.not_found) > 0 ? `${data.mismatched} mismatch, ${data.not_found} missing` : undefined}
             deltaColor="red"
           />
-          <MetricCard label="Total Value" value={formatCurrency(data.total_value)} />
+          <MetricCard label="Total Value" value={data ? formatCurrency(data.total_value) : "—"} />
         </div>
       </div>
 
       <div className="grid grid-cols-5 gap-8">
         <div className="col-span-3">
           <p className="section-label mb-4">By Agency</p>
-          {data.agencies.length > 0 ? (
+          {data && data.agencies.length > 0 ? (
             <div className="space-y-2">
               {data.agencies.slice(0, 10).map((a) => (
                 <div key={a.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50">
@@ -70,6 +106,11 @@ function OverviewTab() {
                 <p className="text-xs text-gray-400 pl-3">+{data.agencies.length - 10} more agencies</p>
               )}
             </div>
+          ) : hasDbError ? (
+            <div className="py-6 text-center">
+              <p className="text-sm text-gray-400 mb-1">Agency data requires database connection</p>
+              <p className="text-xs text-gray-300">Connect to VPN and retry</p>
+            </div>
           ) : (
             <p className="text-sm text-gray-400">No payment data available</p>
           )}
@@ -79,15 +120,19 @@ function OverviewTab() {
           <p className="section-label mb-4">System Status</p>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <StatusDot status={data.errors.db ? "error" : "ok"} />
+              <StatusDot status={hasDbError ? "error" : "ok"} />
               <span className="text-sm">
-                {data.errors.db ? `Database: ${data.errors.db.slice(0, 50)}` : `Database: ${data.payments_count} payments (7d)`}
+                {hasDbError
+                  ? "Database: Unreachable"
+                  : `Database: ${data?.payments_count ?? 0} payments (7d)`}
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <StatusDot status={data.errors.gmail ? "error" : "ok"} />
+              <StatusDot status={hasGmailError ? "error" : "ok"} />
               <span className="text-sm">
-                {data.errors.gmail ? `Gmail: ${data.errors.gmail.slice(0, 50)}` : `Gmail: ${data.processed_count} processed`}
+                {hasGmailError
+                  ? "Gmail: Unavailable"
+                  : `Gmail: ${data?.processed_count ?? 0} processed`}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -99,8 +144,8 @@ function OverviewTab() {
           <div className="mt-6">
             <p className="section-label mb-3">Quick Stats</p>
             <div className="grid grid-cols-2 gap-3">
-              <MetricCard label="Emails" value={data.total_emails} />
-              <MetricCard label="Remittances" value={data.total_remittances} />
+              <MetricCard label="Emails" value={data?.total_emails ?? 0} />
+              <MetricCard label="Remittances" value={data?.total_remittances ?? 0} />
             </div>
           </div>
         </div>
@@ -486,7 +531,12 @@ function HistoryTab() {
   }, []);
 
   if (loading) return <LoadingSkeleton rows={6} />;
-  if (error) return <ErrorBox message={error} />;
+  if (error) return (
+    <div className="space-y-4">
+      <ErrorBox message={error} />
+      <p className="text-sm text-gray-400">History is stored locally — this should work even without external connections.</p>
+    </div>
+  );
   if (!data || !data.emails.length) return <p className="text-sm text-gray-400">No emails processed yet. Run a reconciliation first.</p>;
 
   const { emails, stats } = data;
