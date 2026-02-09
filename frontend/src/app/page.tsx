@@ -181,15 +181,24 @@ function FundingEmailsTab() {
     api.processedEmails(200)
       .then((res) => {
         if (res.emails.length > 0) {
-          const mapped: EmailItem[] = res.emails.map((e: any) => ({
-            id: e.id || e.email_id || "",
-            source: e.source || "",
-            date: e.email_date || e.fetched_at || "",
-            subject: e.subject || "",
-            from: e.sender || "",
-            attachments: [],
-            manual_review: e.manual_review || false,
-          }));
+          const mapped: EmailItem[] = res.emails.map((e: any) => {
+            let atts: string[] = [];
+            if (typeof e.attachments === 'string' && e.attachments) {
+              try { atts = JSON.parse(e.attachments).map((a: any) => a.filename || a); } catch {}
+            } else if (Array.isArray(e.attachments)) {
+              atts = e.attachments.map((a: any) => typeof a === 'string' ? a : a.filename);
+            }
+            return {
+              id: e.id || e.email_id || "",
+              source: e.source || "",
+              date: e.email_date || e.fetched_at || "",
+              subject: e.subject || "",
+              from: e.sender || "",
+              attachments: atts,
+              manual_review: e.manual_review || false,
+              _raw: e,
+            };
+          });
           setEmails(mapped);
         }
       })
@@ -381,11 +390,30 @@ function EmailDetailModal({ email, onClose }: { email: EmailItem; onClose: () =>
             </div>
           )}
 
+          {(email as any)._raw?.remittance_count > 0 && (
+            <div className="border-t border-[var(--color-ws-gray)] pt-4">
+              <p className="section-label mb-2">Parsed Remittance Data</p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400">Remittances</p>
+                  <p className="text-lg font-bold">{(email as any)._raw.remittance_count}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Matched</p>
+                  <p className="text-lg font-bold text-[var(--color-ws-green)]">{(email as any)._raw.total_matched || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Total Amount</p>
+                  <p className="text-lg font-bold">${((email as any)._raw.total_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-[var(--color-ws-gray)] pt-4">
             <p className="section-label mb-2">Reconciliation Status</p>
             <p className="text-sm text-gray-500">
               Remittance lines from this email are tracked in the reconciliation engine.
-              Check the Overview tab for match status.
             </p>
           </div>
         </div>
