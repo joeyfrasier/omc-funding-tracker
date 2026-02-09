@@ -34,37 +34,157 @@ from email_db import get_all_emails, get_stats, store_email, store_reconciliatio
 
 logger = logging.getLogger(__name__)
 
-# ── Styling ──────────────────────────────────────────────────────────────
+# ── Worksuite Brand Styling ──────────────────────────────────────────────
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;600;700;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <style>
-    .block-container { padding-top: 1rem; }
-    [data-testid="stMetric"] { background: #0a0a0a; border: 1px solid #1a1a2e; border-radius: 8px; padding: 12px 16px; }
-    [data-testid="stMetricValue"] { font-size: 1.8rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 2px; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 16px; }
+    :root {
+        --ws-orange: #FF4821;
+        --ws-maroon: #761900;
+        --ws-black: #000000;
+        --ws-white: #FFFFFF;
+        --ws-lavender: #EEEBFF;
+        --ws-mint: #C8EDD5;
+        --ws-purple: #5032A0;
+        --ws-purple-light: #B9ADEA;
+        --ws-gold: #E1B347;
+        --ws-green: #006032;
+        --ws-gray: #DDE3EB;
+    }
+
+    /* Global font override */
+    html, body, [class*="css"] {
+        font-family: 'Archivo', sans-serif !important;
+    }
+
+    .block-container { padding-top: 1.5rem; }
+
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: var(--ws-white);
+        border: 1px solid var(--ws-gray);
+        border-radius: 12px;
+        padding: 14px 18px;
+    }
+    [data-testid="stMetricValue"] {
+        font-family: 'Archivo', sans-serif !important;
+        font-weight: 700;
+        font-size: 1.8rem;
+        color: var(--ws-black);
+    }
+    [data-testid="stMetricLabel"] {
+        font-family: 'Archivo', sans-serif !important;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #666;
+    }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        border-bottom: 2px solid var(--ws-gray);
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 10px 20px;
+        font-family: 'Archivo', sans-serif !important;
+        font-weight: 600;
+        font-size: 14px;
+        color: #666;
+    }
+    .stTabs [aria-selected="true"] {
+        color: var(--ws-orange) !important;
+        border-bottom-color: var(--ws-orange) !important;
+    }
+
+    /* Buttons — pill shaped */
+    .stButton > button {
+        border-radius: 999px !important;
+        font-family: 'Archivo', sans-serif !important;
+        font-weight: 600;
+        font-size: 14px;
+        padding: 10px 28px;
+        border: none;
+    }
+    .stButton > button[kind="primary"] {
+        background-color: var(--ws-orange) !important;
+        color: white !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: var(--ws-maroon) !important;
+    }
+
+    /* Expanders */
+    [data-testid="stExpander"] {
+        border: 1px solid var(--ws-gray);
+        border-radius: 12px;
+    }
+
+    /* Dataframes */
+    [data-testid="stDataFrame"] {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    /* Success/Error/Warning/Info boxes */
+    [data-testid="stAlert"] {
+        border-radius: 8px;
+        font-family: 'Archivo', sans-serif !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #FAFAFA;
+        border-right: 1px solid var(--ws-gray);
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdown"] {
+        font-family: 'Archivo', sans-serif !important;
+    }
+
+    /* Hide Streamlit branding */
     div[data-testid="stStatusWidget"] { display: none; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    /* Section labels */
+    .ws-section-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #888;
+        margin-bottom: 4px;
+    }
+
+    /* Display headline (Instrument Serif) */
+    .ws-display {
+        font-family: 'Instrument Serif', Georgia, serif !important;
+        font-weight: 400;
+        letter-spacing: -0.02em;
+        line-height: 1.05;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Header ───────────────────────────────────────────────────────────────
-st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&display=swap" rel="stylesheet">
-""", unsafe_allow_html=True)
-
 st.markdown(f"""
-<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.5rem;">
-    <div style="display:flex;align-items:baseline;gap:14px;">
-        <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:1.8rem;color:white;letter-spacing:-0.02em;">Worksuite</span>
-        <span style="font-size:1.4rem;font-weight:500;color:#999;">OMC Funding Tracker</span>
+<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 12px 0;border-bottom:2px solid #DDE3EB;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:16px;">
+        <span style="font-family:'Archivo',sans-serif;font-weight:900;font-size:1.5rem;color:#000;letter-spacing:-0.02em;">Worksuite</span>
+        <div style="width:1px;height:24px;background:#DDE3EB;"></div>
+        <span style="font-family:'Archivo',sans-serif;font-weight:700;font-size:1.1rem;color:#000;">OMC Funding Tracker</span>
+        <span style="background:#FF4821;color:white;font-family:'Archivo',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:3px 10px;border-radius:999px;">Read-Only</span>
     </div>
-    <span style="color:#666;font-size:0.8rem;">Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
+    <span style="font-family:'Archivo',sans-serif;color:#999;font-size:12px;">{datetime.now().strftime('%b %d, %Y · %H:%M')}</span>
 </div>
-<p style="color:#555;font-size:0.82rem;margin-top:-8px;">Omnicom Pay Run Funding — Remittance ↔ DB ↔ MoneyCorp reconciliation <span style="color:#FF4821;font-weight:600;">READ-ONLY</span></p>
 """, unsafe_allow_html=True)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────
 tab_overview, tab_emails, tab_payruns, tab_reconcile, tab_history = st.tabs([
-    "📊 Overview", "📧 Funding Emails", "🏦 Pay Runs", "🔄 Reconcile", "📜 History"
+    "Overview", "Funding Emails", "Pay Runs", "Reconcile", "History"
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -497,21 +617,31 @@ with tab_history:
 
 # ── Sidebar ──────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
+    st.markdown("""
+    <div style="padding:8px 0 16px 0;">
+        <span style="font-family:'Archivo',sans-serif;font-weight:900;font-size:1.1rem;color:#000;letter-spacing:-0.02em;">Worksuite</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<p class="ws-section-label">Configuration</p>', unsafe_allow_html=True)
     st.markdown(f"**Gmail:** {os.getenv('GOOGLE_IMPERSONATE_USER', 'N/A')}")
     st.markdown(f"**DB:** {os.getenv('DB_NAME', 'N/A')}@{os.getenv('DB_HOST', 'N/A')[:20]}...")
     st.markdown(f"**Bastion:** {os.getenv('SSH_BASTION_HOST', 'N/A')}")
     
     st.divider()
-    st.markdown("### 📋 Email Sources")
+    st.markdown('<p class="ws-section-label">Email Sources</p>', unsafe_allow_html=True)
     for key, src in EMAIL_SOURCES.items():
         st.markdown(f"**{key}:** {src['description']}")
     
     st.divider()
-    st.markdown("### 🏢 OMC Tenants")
+    st.markdown('<p class="ws-section-label">OMC Tenants</p>', unsafe_allow_html=True)
     for t in sorted(OMC_TENANTS):
-        st.markdown(f"• {t.replace('.worksuite.com', '')}")
+        st.markdown(f"· {t.replace('.worksuite.com', '')}")
     
     st.divider()
-    st.caption("⚠️ READ-ONLY mode — no payments executed")
-    st.caption(f"v1.0 — {datetime.now().strftime('%Y-%m-%d')}")
+    st.markdown("""
+    <div style="padding:8px 0;text-align:center;">
+        <span style="background:#FF4821;color:white;font-family:'Archivo',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;padding:4px 12px;border-radius:999px;">Read-Only Mode</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(f"v1.0 · {datetime.now().strftime('%Y-%m-%d')}")
