@@ -52,7 +52,8 @@ async def periodic_sync():
     while True:
         try:
             from sync_service import run_sync_cycle
-            run_sync_cycle()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, run_sync_cycle)
         except Exception as e:
             logger.error("Periodic sync failed: %s", e)
         await asyncio.sleep(300)  # 5 minutes
@@ -610,6 +611,312 @@ def cached_payruns(
                               date_to=date_to, search=search, sort_by=sort_by,
                               sort_dir=sort_dir, limit=limit, offset=offset)
     return serialize({"count": len(runs), "payruns": runs})
+
+
+# ── Cross-Search ─────────────────────────────────────────────────────────
+
+@app.get("/api/search/cross")
+def cross_search(
+    q: Optional[str] = Query(None),
+    source: str = Query("invoices", description="emails|invoices|funding"),
+    amount_min: Optional[float] = Query(None),
+    amount_max: Optional[float] = Query(None),
+    tenant: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Cross-search across emails, invoices, and funding records."""
+    results = []
+
+    if source == "emails":
+        # Search processed_emails.db
+        try:
+            import sqlite3 as _sq
+            econn = _sq.connect(str(Path('data/processed_emails.db')))
+            econn.row_factory = _sq.Row
+            conditions = []
+            params = []
+            if q:
+                conditions.append("(e.subject LIKE ? OR e.sender LIKE ? OR mr.nvc_code LIKE ?)")
+                params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            rows = econn.execute(f"""
+                SELECT DISTINCT mr.nvc_code, mr.remittance_amount, mr.description, mr.company,
+                       mr.status, mr.tenant, e.subject, e.sender, e.email_date,
+                       r.agency, r.payment_amount, r.source_type
+                FROM match_results mr
+                JOIN remittances r ON mr.remittance_id = r.id
+                JOIN emails e ON r.email_id = e.id
+                {where}
+                ORDER BY e.email_date DESC
+                LIMIT ?
+            """, params + [limit]).fetchall()
+            econn.close()
+            for r in rows:
+                rd = dict(r)
+                amt = rd.get('remittance_amount', 0) or 0
+                if amount_min and amt < amount_min:
+                    continue
+                if amount_max and amt > amount_max:
+                    continue
+                results.append({
+                    "source": "email",
+                    "nvc_code": rd.get("nvc_code"),
+                    "amount": amt,
+                    "description": rd.get("description"),
+                    "company": rd.get("company"),
+                    "tenant": rd.get("tenant"),
+                    "email_subject": rd.get("subject"),
+                    "sender": rd.get("sender"),
+                    "date": rd.get("email_date"),
+                    "agency": rd.get("agency"),
+                })
+        except Exception as e:
+            logger.warning("Email cross-search failed: %s", e)
+
+    elif source == "invoices":
+        conn = __import__('sqlite3').connect(str(recon_db.RECON_DB_PATH))
+        conn.row_factory = __import__('sqlite3').Row
+        conditions = ["invoice_amount IS NOT NULL"]
+        params = []
+        if q:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{q}%")
+        if tenant:
+            conditions.append("invoice_tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if amount_min is not None:
+            conditions.append("invoice_amount >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append("invoice_amount <= ?")
+            params.append(amount_max)
+        where = f"WHERE {' AND '.join(conditions)}"
+        rows = conn.execute(
+            f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ?",
+            params + [limit]
+        ).fetchall()
+        conn.close()
+        results = [{"source": "invoice", **dict(r)} for r in rows]
+
+    elif source == "funding":
+        conn = __import__('sqlite3').connect(str(recon_db.RECON_DB_PATH))
+        conn.row_factory = __import__('sqlite3').Row
+        conditions = ["funding_amount IS NOT NULL"]
+        params = []
+        if q:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{q}%")
+        if amount_min is not None:
+            conditions.append("funding_amount >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append("funding_amount <= ?")
+            params.append(amount_max)
+        where = f"WHERE {' AND '.join(conditions)}"
+        rows = conn.execute(
+            f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ?",
+            params + [limit]
+        ).fetchall()
+        conn.close()
+        results = [{"source": "funding", **dict(r)} for r in rows]
+
+    return {"count": len(results), "results": serialize(results)}
+
+
+# ── Suggested Matches ────────────────────────────────────────────────────
+
+@app.get("/api/recon/suggestions/{nvc_code}")
+def recon_suggestions(nvc_code: str):
+    """Find potential matches for a given NVC code."""
+    record = recon_db.get_recon_record(nvc_code)
+    if not record:
+        raise HTTPException(status_code=404, detail="NVC code not found")
+
+    import sqlite3 as _sq
+    conn = _sq.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = _sq.Row
+
+    suggestions = []
+    seen = set()
+
+    # 1. Amount-based matches (±1%)
+    for amt_field, src_label in [
+        ('remittance_amount', 'remittance'),
+        ('invoice_amount', 'invoice'),
+        ('funding_amount', 'funding'),
+    ]:
+        amt = record.get(amt_field)
+        if amt is None:
+            continue
+        tolerance = amt * 0.01
+        lo, hi = amt - tolerance, amt + tolerance
+        # Find other records that have a DIFFERENT source with matching amount
+        for other_field, other_label in [
+            ('remittance_amount', 'remittance'),
+            ('invoice_amount', 'invoice'),
+            ('funding_amount', 'funding'),
+        ]:
+            if other_label == src_label:
+                continue
+            # Only suggest if the target record is missing this source
+            if record.get(other_field) is not None:
+                continue
+            rows = conn.execute(f"""
+                SELECT * FROM reconciliation_records
+                WHERE nvc_code != ? AND {other_field} BETWEEN ? AND ?
+                LIMIT 10
+            """, (nvc_code, lo, hi)).fetchall()
+            for r in rows:
+                rk = r['nvc_code']
+                if rk in seen:
+                    continue
+                seen.add(rk)
+                confidence = 0.7
+                # Boost if tenant matches
+                if record.get('invoice_tenant') and r['invoice_tenant'] == record.get('invoice_tenant'):
+                    confidence += 0.15
+                suggestions.append({
+                    "nvc_code": rk,
+                    "reason": f"Amount match ({other_label}: {r[other_field]:.2f})",
+                    "confidence": round(confidence, 2),
+                    "record": dict(r),
+                })
+
+    # 2. Fuzzy NVC code match (prefix)
+    if len(nvc_code) > 4:
+        prefix = nvc_code[:len(nvc_code)-2]
+        rows = conn.execute(
+            "SELECT * FROM reconciliation_records WHERE nvc_code LIKE ? AND nvc_code != ? LIMIT 10",
+            (f"{prefix}%", nvc_code)
+        ).fetchall()
+        for r in rows:
+            rk = r['nvc_code']
+            if rk in seen:
+                continue
+            seen.add(rk)
+            suggestions.append({
+                "nvc_code": rk,
+                "reason": f"Similar NVC code ({rk})",
+                "confidence": 0.5,
+                "record": dict(r),
+            })
+
+    conn.close()
+
+    # Sort by confidence, top 5
+    suggestions.sort(key=lambda x: x['confidence'], reverse=True)
+    return {"nvc_code": nvc_code, "suggestions": serialize(suggestions[:5])}
+
+
+# ── Manual Association ───────────────────────────────────────────────────
+
+class AssociateRequest(BaseModel):
+    nvc_code: str
+    associate_with: str
+    source: str  # invoice|funding|remittance
+    notes: str = ""
+
+@app.post("/api/recon/associate")
+def recon_associate(req: AssociateRequest):
+    """Manually associate two records by merging data."""
+    target = recon_db.get_recon_record(req.nvc_code)
+    donor = recon_db.get_recon_record(req.associate_with)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Target {req.nvc_code} not found")
+    if not donor:
+        raise HTTPException(status_code=404, detail=f"Source {req.associate_with} not found")
+
+    # Merge the specified source from donor into target
+    if req.source == "remittance" and donor.get('remittance_amount') is not None:
+        recon_db.upsert_from_remittance(
+            req.nvc_code, donor['remittance_amount'],
+            donor.get('remittance_date', ''), donor.get('remittance_source', ''),
+            donor.get('remittance_email_id', '')
+        )
+    elif req.source == "invoice" and donor.get('invoice_amount') is not None:
+        recon_db.upsert_from_invoice(
+            req.nvc_code, donor['invoice_amount'],
+            donor.get('invoice_status', ''), donor.get('invoice_tenant', ''),
+            donor.get('invoice_payrun_ref', ''), donor.get('invoice_currency', '')
+        )
+    elif req.source == "funding" and donor.get('funding_amount') is not None:
+        recon_db.upsert_from_funding(
+            req.nvc_code, donor['funding_amount'],
+            donor.get('funding_account_id', ''), donor.get('funding_date', '')
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"No {req.source} data in {req.associate_with}")
+
+    # Add audit note
+    import sqlite3 as _sq
+    conn = _sq.connect(str(recon_db.RECON_DB_PATH))
+    now = datetime.now().isoformat()
+    existing_notes = target.get('notes') or ''
+    audit = f"[{now}] Associated {req.source} from {req.associate_with}. {req.notes}"
+    new_notes = f"{existing_notes}\n{audit}".strip()
+    conn.execute("UPDATE reconciliation_records SET notes = ?, last_updated_at = ? WHERE nvc_code = ?",
+                 (new_notes, now, req.nvc_code))
+    conn.commit()
+    conn.close()
+
+    updated = recon_db.get_recon_record(req.nvc_code)
+    return {"success": True, "record": serialize(updated)}
+
+
+# ── Flag for Follow-up ───────────────────────────────────────────────────
+
+class FlagRequest(BaseModel):
+    nvc_code: str
+    flag: str  # needs_outreach|investigating|escalated
+    notes: str = ""
+
+@app.post("/api/recon/flag")
+def recon_flag(req: FlagRequest):
+    """Flag a record for follow-up."""
+    allowed_flags = {'needs_outreach', 'investigating', 'escalated', ''}
+    if req.flag and req.flag not in allowed_flags:
+        raise HTTPException(status_code=400, detail=f"Invalid flag. Use: {allowed_flags}")
+
+    record = recon_db.get_recon_record(req.nvc_code)
+    if not record:
+        raise HTTPException(status_code=404, detail="NVC code not found")
+
+    import sqlite3 as _sq
+    conn = _sq.connect(str(recon_db.RECON_DB_PATH))
+    now = datetime.now().isoformat()
+    conn.execute(
+        "UPDATE reconciliation_records SET flag = ?, flag_notes = ?, last_updated_at = ? WHERE nvc_code = ?",
+        (req.flag or None, req.notes or None, now, req.nvc_code)
+    )
+    conn.commit()
+    conn.close()
+
+    updated = recon_db.get_recon_record(req.nvc_code)
+    return {"success": True, "record": serialize(updated)}
+
+
+# ── Reconciliation Queue ─────────────────────────────────────────────────
+
+@app.get("/api/recon/queue")
+def recon_queue(
+    status: Optional[str] = Query(None),
+    tenant: Optional[str] = Query(None),
+    flag: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    sort_by: str = Query("priority"),
+    sort_dir: str = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Get unreconciled records as a prioritized work queue."""
+    records, total = recon_db.get_recon_records_queue(
+        status=status, tenant=tenant, flag=flag, search=search,
+        date_from=date_from, date_to=date_to, sort_by=sort_by,
+        sort_dir=sort_dir, limit=limit, offset=offset,
+    )
+    return serialize({"total": total, "count": len(records), "records": records})
 
 
 if __name__ == "__main__":

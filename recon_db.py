@@ -43,7 +43,9 @@ def init_recon_db():
             last_updated_at TEXT NOT NULL,
             resolved_at TEXT,
             resolved_by TEXT,
-            notes TEXT
+            notes TEXT,
+            flag TEXT,
+            flag_notes TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_recon_status ON reconciliation_records(match_status);
         CREATE INDEX IF NOT EXISTS idx_recon_tenant ON reconciliation_records(invoice_tenant);
@@ -351,5 +353,87 @@ def get_cached_payruns(
     return [dict(r) for r in rows]
 
 
+def _migrate_add_flag_columns():
+    """Add flag/flag_notes columns if they don't exist (for existing DBs)."""
+    conn = _get_conn()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+        if 'flag' not in cols:
+            conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag TEXT")
+        if 'flag_notes' not in cols:
+            conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag_notes TEXT")
+        conn.commit()
+    except Exception as e:
+        logger.warning("Migration flag columns: %s", e)
+    finally:
+        conn.close()
+
+
+def get_recon_records_queue(
+    status: Optional[str] = None,
+    tenant: Optional[str] = None,
+    flag: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: str = 'priority',
+    sort_dir: str = 'asc',
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple:
+    """Get unreconciled records sorted by priority. Returns (records, total_count)."""
+    conn = _get_conn()
+    conditions = ["match_status NOT IN ('full_3way', 'resolved')"]
+    params: list = []
+
+    if status:
+        conditions.append("match_status = ?")
+        params.append(status)
+    if tenant:
+        conditions.append("invoice_tenant LIKE ?")
+        params.append(f"%{tenant}%")
+    if flag:
+        conditions.append("flag = ?")
+        params.append(flag)
+    if search:
+        conditions.append("nvc_code LIKE ?")
+        params.append(f"%{search}%")
+    if date_from:
+        conditions.append("first_seen_at >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("first_seen_at <= ?")
+        params.append(date_to)
+
+    where = f"WHERE {' AND '.join(conditions)}"
+
+    # Count
+    total = conn.execute(f"SELECT COUNT(*) FROM reconciliation_records {where}", params).fetchone()[0]
+
+    # Priority ordering
+    if sort_by == 'priority':
+        order = """CASE match_status
+            WHEN 'mismatch' THEN 1
+            WHEN 'partial_2way' THEN 2
+            WHEN 'remittance_only' THEN 3
+            WHEN 'invoice_only' THEN 4
+            WHEN 'unmatched' THEN 5
+            ELSE 6
+        END ASC, last_updated_at DESC"""
+    else:
+        allowed = {'last_updated_at', 'first_seen_at', 'remittance_amount', 'invoice_amount', 'funding_amount'}
+        col = sort_by if sort_by in allowed else 'last_updated_at'
+        direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+        order = f"{col} {direction}"
+
+    rows = conn.execute(
+        f"SELECT * FROM reconciliation_records {where} ORDER BY {order} LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
 # Initialize on import
 init_recon_db()
+_migrate_add_flag_columns()
