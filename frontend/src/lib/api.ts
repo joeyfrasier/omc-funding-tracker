@@ -128,6 +128,29 @@ export interface ConfigData {
   db_name: string;
 }
 
+export interface TenantInfo {
+  domain: string;
+  slug: string;
+  display_name: string;
+  group: string;
+  funding_method: string;
+  config_updated: string | null;
+}
+
+export interface MoneyCorpCurrency {
+  currency: string;
+  balance: number;
+  scheduled: number;
+  processing: number;
+  last_updated: string | null;
+}
+
+export interface MoneyCorpAccount {
+  tenant: string;
+  processor_id: string;
+  currencies: MoneyCorpCurrency[];
+}
+
 export const api = {
   health: () => fetchAPI<{ status: string }>("/api/health"),
   overview: (days = 7) => fetchAPI<OverviewData>(`/api/overview?days=${days}`),
@@ -151,4 +174,9 @@ export const api = {
       body: JSON.stringify({ max_emails: maxEmails, include_processed: includeProcessed }),
     }),
   config: () => fetchAPI<ConfigData>("/api/config"),
+  tenants: () => fetchAPI<{ tenants: TenantInfo[]; count: number }>("/api/tenants"),
+  moneyCorpAccounts: () =>
+    fetchAPI<{ accounts: MoneyCorpAccount[]; count: number; total_currencies: number }>(
+      "/api/moneycorp/subaccounts"
+    ),
 };

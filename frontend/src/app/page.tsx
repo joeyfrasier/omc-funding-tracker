@@ -5,9 +5,9 @@ import Header from "@/components/Header";
 import Tabs from "@/components/Tabs";
 import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
-import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData } from "@/lib/api";
+import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount } from "@/lib/api";
 
-const TAB_NAMES = ["Overview", "Funding Emails", "Pay Runs", "Reconcile", "History"];
+const TAB_NAMES = ["Overview", "Funding Emails", "Pay Runs", "Worksuite Tenants", "MoneyCorp", "Reconcile", "History"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -253,6 +253,9 @@ function PayRunsTab() {
   const [payruns, setPayruns] = useState<PayRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [days, setDays] = useState(30);
+  const [filterTenant, setFilterTenant] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterMinAmount, setFilterMinAmount] = useState("");
   const [nvcInput, setNvcInput] = useState("");
   const [lookupResults, setLookupResults] = useState<any>(null);
   const [error, setError] = useState("");
@@ -273,12 +276,25 @@ function PayRunsTab() {
       .catch((e) => setError(e.message));
   }, [nvcInput]);
 
-  const totalValue = payruns.reduce((s, p) => s + (p.total_amount || 0), 0);
-  const totalPayments = payruns.reduce((s, p) => s + p.payment_count, 0);
+  // Apply filters
+  const filtered = payruns.filter((p) => {
+    const tenant = (p.tenant || "").replace(".worksuite.com", "");
+    if (filterTenant && !tenant.toLowerCase().includes(filterTenant.toLowerCase())) return false;
+    if (filterStatus && String(p.status) !== filterStatus) return false;
+    if (filterMinAmount && (p.total_amount || 0) < Number(filterMinAmount)) return false;
+    return true;
+  });
+
+  const totalValue = filtered.reduce((s, p) => s + (p.total_amount || 0), 0);
+  const totalPayments = filtered.reduce((s, p) => s + p.payment_count, 0);
+
+  // Unique tenants/statuses for filter dropdowns
+  const tenantOptions = [...new Set(payruns.map((p) => (p.tenant || "").replace(".worksuite.com", "")))].sort();
+  const statusOptions = [...new Set(payruns.map((p) => String(p.status)))].sort();
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end gap-4">
+      <div className="flex items-end gap-4 flex-wrap">
         <div>
           <label className="section-label block mb-2">Days Back</label>
           <input
@@ -299,8 +315,58 @@ function PayRunsTab() {
 
       {payruns.length > 0 && (
         <>
+          {/* Filters */}
+          <div className="card bg-gray-50 border-gray-200">
+            <p className="section-label mb-3">Filters</p>
+            <div className="flex items-end gap-4 flex-wrap">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Tenant</label>
+                <select
+                  className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+                  value={filterTenant}
+                  onChange={(e) => setFilterTenant(e.target.value)}
+                >
+                  <option value="">All Tenants</option>
+                  {tenantOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Status</label>
+                <select
+                  className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
+                  <option value="">All Statuses</option>
+                  {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Min Amount</label>
+                <input
+                  type="number"
+                  className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-32"
+                  placeholder="$0"
+                  value={filterMinAmount}
+                  onChange={(e) => setFilterMinAmount(e.target.value)}
+                />
+              </div>
+              {(filterTenant || filterStatus || filterMinAmount) && (
+                <button
+                  className="text-sm text-[var(--color-ws-orange)] font-semibold hover:underline"
+                  onClick={() => { setFilterTenant(""); setFilterStatus(""); setFilterMinAmount(""); }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+            {filtered.length !== payruns.length && (
+              <p className="text-xs text-gray-400 mt-2">Showing {filtered.length} of {payruns.length} pay runs</p>
+            )}
+          </div>
+
           <div className="grid grid-cols-3 gap-4">
-            <MetricCard label="Pay Runs" value={payruns.length} />
+            <MetricCard label="Pay Runs" value={filtered.length} delta={filtered.length !== payruns.length ? `of ${payruns.length} total` : undefined} />
             <MetricCard label="Total Value" value={formatCurrencyFull(totalValue)} />
             <MetricCard label="Total Payments" value={totalPayments} />
           </div>
@@ -318,7 +384,7 @@ function PayRunsTab() {
                 </tr>
               </thead>
               <tbody>
-                {payruns.map((p, i) => (
+                {filtered.map((p, i) => (
                   <tr key={i}>
                     <td className="text-sm font-medium">{p.reference}</td>
                     <td className="text-sm">{(p.tenant || "").replace(".worksuite.com", "")}</td>
@@ -593,6 +659,156 @@ function HistoryTab() {
   );
 }
 
+/* ── Worksuite Tenants Tab ────────────────────────────────────────────── */
+
+function WorksuiteTenantsTab() {
+  const [tenants, setTenants] = useState<TenantInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.tenants()
+      .then((res) => setTenants(res.tenants))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingSkeleton rows={6} />;
+  if (error) return <ErrorBox message={error} />;
+
+  // Group by group
+  const groups: Record<string, TenantInfo[]> = {};
+  tenants.forEach((t) => {
+    const g = t.group || "Other";
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(t);
+  });
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        Omnicom tenants configured in Worksuite with OMC invoices. Edit <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">config.json</code> to update.
+      </p>
+
+      <div className="grid grid-cols-3 gap-4">
+        <MetricCard label="Total Tenants" value={tenants.length} />
+        <MetricCard label="Groups" value={Object.keys(groups).length} />
+        <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "—"} />
+      </div>
+
+      {Object.entries(groups).sort().map(([group, items]) => (
+        <div key={group}>
+          <p className="section-label mb-3">{group}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {items.map((t) => (
+              <div key={t.domain} className="card card-hover">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-sm">{t.display_name}</span>
+                  <span className="badge badge-gray">{t.funding_method}</span>
+                </div>
+                <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── MoneyCorp Sub-Accounts Tab ──────────────────────────────────────── */
+
+function MoneyCorpTab() {
+  const [accounts, setAccounts] = useState<MoneyCorpAccount[]>([]);
+  const [totalCurrencies, setTotalCurrencies] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.moneyCorpAccounts()
+      .then((res) => {
+        setAccounts(res.accounts);
+        setTotalCurrencies(res.total_currencies);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingSkeleton rows={6} />;
+  if (error) return (
+    <div className="space-y-4">
+      <ErrorBox message={error} />
+      <p className="text-sm text-gray-400">MoneyCorp sub-account data is pulled from Worksuite&rsquo;s account balance records.</p>
+    </div>
+  );
+
+  const totalBalance = accounts.reduce(
+    (s, a) => s + a.currencies.filter((c) => c.currency === "USD").reduce((ss, c) => ss + (c.balance || 0), 0), 0
+  );
+  const totalProcessing = accounts.reduce(
+    (s, a) => s + a.currencies.filter((c) => c.currency === "USD").reduce((ss, c) => ss + (c.processing || 0), 0), 0
+  );
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        MoneyCorp sub-accounts linked to OMC tenants in Worksuite. Balances from the latest operational fetch.
+      </p>
+
+      <div className="grid grid-cols-4 gap-4">
+        <MetricCard label="Sub-Accounts" value={accounts.length} />
+        <MetricCard label="Currency Pairs" value={totalCurrencies} />
+        <MetricCard label="Total USD Balance" value={formatCurrencyFull(totalBalance)} />
+        <MetricCard label="USD Processing" value={formatCurrencyFull(totalProcessing)} />
+      </div>
+
+      <div className="space-y-4">
+        {accounts.map((acct) => (
+          <div key={acct.tenant} className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <span className="font-semibold">{acct.tenant}</span>
+                <span className="text-xs text-gray-400 font-mono ml-3">{acct.processor_id}</span>
+              </div>
+              <span className="badge badge-lavender">{acct.currencies.length} currencies</span>
+            </div>
+            <table className="ws-table">
+              <thead>
+                <tr>
+                  <th>Currency</th>
+                  <th>Balance</th>
+                  <th>Scheduled</th>
+                  <th>Processing</th>
+                  <th>Last Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {acct.currencies.map((c) => (
+                  <tr key={c.currency}>
+                    <td><span className="badge badge-gray">{c.currency}</span></td>
+                    <td className={`text-sm font-medium ${(c.balance || 0) > 0 ? "text-[var(--color-ws-green)]" : ""}`}>
+                      {(c.balance || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-sm text-gray-500">
+                      {(c.scheduled || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className={`text-sm ${(c.processing || 0) > 0 ? "font-medium" : "text-gray-500"}`}>
+                      {(c.processing || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-sm text-gray-400">
+                      {c.last_updated ? new Date(c.last_updated).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Shared Components ───────────────────────────────────────────────── */
 
 function ErrorBox({ message }: { message: string }) {
@@ -649,8 +865,10 @@ export default function Home() {
       {activeTab === 0 && <OverviewTab />}
       {activeTab === 1 && <FundingEmailsTab />}
       {activeTab === 2 && <PayRunsTab />}
-      {activeTab === 3 && <ReconcileTab />}
-      {activeTab === 4 && <HistoryTab />}
+      {activeTab === 3 && <WorksuiteTenantsTab />}
+      {activeTab === 4 && <MoneyCorpTab />}
+      {activeTab === 5 && <ReconcileTab />}
+      {activeTab === 6 && <HistoryTab />}
     </div>
   );
 }

@@ -1,0 +1,75 @@
+{
+  "tenants": [
+    {
+      "slug": "omcbbdo",
+      "domain": "omcbbdo.worksuite.com",
+      "display_name": "OMC BBDO",
+      "group": "Omnicom Advertising"
+    },
+    {
+      "slug": "omcflywheel",
+      "domain": "omcflywheel.worksuite.com",
+      "display_name": "OMC Flywheel",
+      "group": "Omnicom Media"
+    },
+    {
+      "slug": "omcohg",
+      "domain": "omcohg.worksuite.com",
+      "display_name": "OMC OHG",
+      "group": "Omnicom Health"
+    },
+    {
+      "slug": "omnicom",
+      "domain": "omnicom.worksuite.com",
+      "display_name": "Omnicom (Corporate)",
+      "group": "Omnicom Corporate"
+    },
+    {
+      "slug": "omnicombranding",
+      "domain": "omnicombranding.worksuite.com",
+      "display_name": "Omnicom Branding",
+      "group": "Omnicom Advertising"
+    },
+    {
+      "slug": "omnicomddb",
+      "domain": "omnicomddb.worksuite.com",
+      "display_name": "Omnicom DDB",
+      "group": "Omnicom Advertising"
+    },
+    {
+      "slug": "omnicommedia",
+      "domain": "omnicommedia.worksuite.com",
+      "display_name": "Omnicom Media Group",
+      "group": "Omnicom Media"
+    },
+    {
+      "slug": "omnicomoac",
+      "domain": "omnicomoac.worksuite.com",
+      "display_name": "Omnicom OAC",
+      "group": "Omnicom Advertising"
+    },
+    {
+      "slug": "omnicomprecision",
+      "domain": "omnicomprecision.worksuite.com",
+      "display_name": "Omnicom Precision",
+      "group": "Omnicom Media"
+    },
+    {
+      "slug": "omnicomprg",
+      "domain": "omnicomprg.worksuite.com",
+      "display_name": "Omnicom PRG",
+      "group": "Omnicom PR"
+    },
+    {
+      "slug": "omnicomtbwa",
+      "domain": "omnicomtbwa.worksuite.com",
+      "display_name": "Omnicom TBWA",
+      "group": "Omnicom Advertising"
+    }
+  ],
+  "email_sources": {
+    "oasys": "OASYS remittance emails (CSV attachments)",
+    "d365_ach": "D365 ACH remittance emails (CSV attachments)",
+    "ldn_gss": "London GSS remittance emails (image PDFs — manual review)"
+  }
+}

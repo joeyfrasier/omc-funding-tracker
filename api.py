@@ -9,6 +9,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -18,7 +19,10 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 load_dotenv()
 
-from db_client import get_omc_payments, get_omc_payruns, status_label, OMC_TENANTS
+from db_client import (
+    get_omc_payments, get_omc_payruns, status_label, OMC_TENANTS,
+    get_moneycorp_subaccounts, get_tenant_funding_config,
+)
 from gmail_client import (
     fetch_all_remittances, fetch_emails, load_processed,
     mark_processed, EMAIL_SOURCES,
@@ -376,14 +380,86 @@ def run_reconciliation(req: ReconcileRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Tenants ──────────────────────────────────────────────────────────────
+
+@app.get("/api/tenants")
+def tenants():
+    """Get configured OMC tenants with funding config from DB."""
+    import json as _json
+    config_path = Path(__file__).parent / "config.json"
+    tenant_config = {}
+    if config_path.exists():
+        cfg = _json.loads(config_path.read_text())
+        tenant_config = {t["domain"]: t for t in cfg.get("tenants", [])}
+
+    # Try to enrich with DB funding config
+    funding = {}
+    try:
+        for row in get_tenant_funding_config():
+            funding[row["tenant"]] = row
+    except Exception as e:
+        logger.warning("Could not fetch tenant funding config: %s", e)
+
+    results = []
+    for domain in sorted(OMC_TENANTS):
+        cfg = tenant_config.get(domain, {})
+        fund = funding.get(domain, {})
+        results.append({
+            "domain": domain,
+            "slug": cfg.get("slug", domain.replace(".worksuite.com", "")),
+            "display_name": cfg.get("display_name", domain.replace(".worksuite.com", "")),
+            "group": cfg.get("group", ""),
+            "funding_method": fund.get("funding_method", "unknown"),
+            "config_updated": fund.get("updated_at"),
+        })
+
+    return {"tenants": results, "count": len(results)}
+
+
+# ── MoneyCorp Sub-Accounts ───────────────────────────────────────────────
+
+@app.get("/api/moneycorp/subaccounts")
+def moneycorp_subaccounts():
+    """Get MoneyCorp sub-accounts with latest balances per OMC tenant."""
+    try:
+        accounts = get_moneycorp_subaccounts()
+
+        # Group by tenant
+        by_tenant: dict = {}
+        for acct in accounts:
+            t = acct["tenant"].replace(".worksuite.com", "")
+            if t not in by_tenant:
+                by_tenant[t] = {"tenant": t, "processor_id": acct["processor_id"], "currencies": []}
+            by_tenant[t]["currencies"].append({
+                "currency": acct["currency"],
+                "balance": acct["balance"],
+                "scheduled": acct["scheduled_amount"],
+                "processing": acct["processing_amount"],
+                "last_updated": acct.get("last_updated"),
+            })
+
+        return serialize({
+            "accounts": sorted(by_tenant.values(), key=lambda x: x["tenant"]),
+            "count": len(by_tenant),
+            "total_currencies": len(accounts),
+        })
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)[:100]}")
+
+
 # ── Config / Meta ────────────────────────────────────────────────────────
 
 @app.get("/api/config")
 def config():
     """Get configuration metadata (no secrets)."""
     import os
+    import json as _json
+    config_path = Path(__file__).parent / "config.json"
+    cfg = {}
+    if config_path.exists():
+        cfg = _json.loads(config_path.read_text())
     return {
-        "email_sources": {k: v.get("description", k) for k, v in EMAIL_SOURCES.items()},
+        "email_sources": cfg.get("email_sources", {k: v.get("description", k) for k, v in EMAIL_SOURCES.items()}),
         "omc_tenants": sorted([t.replace(".worksuite.com", "") for t in OMC_TENANTS]),
         "gmail_user": os.getenv("GOOGLE_IMPERSONATE_USER", "N/A"),
         "db_name": os.getenv("DB_NAME", "N/A"),

@@ -202,6 +202,52 @@ def get_omc_payruns(days_back=60) -> List[dict]:
         return results
 
 
+def get_moneycorp_subaccounts() -> List[dict]:
+    """Get MoneyCorp sub-accounts (processor_id) per OMC tenant with latest balances."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT DISTINCT ON (tenant, currency)
+                tenant, processor_id, currency, amount as balance,
+                scheduled_amount, processing_amount,
+                is_scheduled_currency_match, is_processing_currency_match,
+                oper_fetch_date as last_updated
+            FROM payments_operaccountbalance
+            WHERE tenant = ANY(%s)
+            ORDER BY tenant, currency, oper_fetch_date DESC
+        """, (OMC_TENANTS,))
+        
+        results = []
+        for row in cur.fetchall():
+            row = dict(row)
+            for k, v in row.items():
+                if isinstance(v, Decimal):
+                    row[k] = float(v)
+            results.append(row)
+        return results
+
+
+def get_tenant_funding_config() -> List[dict]:
+    """Get funding config (method) per OMC tenant."""
+    with get_connection() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT tenant, funding_method, created_at, updated_at
+            FROM payments_paymentsconfig
+            WHERE tenant = ANY(%s)
+            ORDER BY tenant
+        """, (OMC_TENANTS,))
+        
+        results = []
+        for row in cur.fetchall():
+            row = dict(row)
+            for k, v in row.items():
+                if isinstance(v, Decimal):
+                    row[k] = float(v)
+            results.append(row)
+        return results
+
+
 # Payment status codes
 PAYMENT_STATUS = {
     0: 'Draft',
