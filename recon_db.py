@@ -117,19 +117,25 @@ def upsert_from_invoice(nvc_code: str, amount: float, status: str, tenant: str, 
     recalculate_match_status(nvc_code)
 
 
-def upsert_from_funding(nvc_code: str, amount: float, account_id: str, date: str):
+def upsert_from_funding(nvc_code: str, amount: float, account_id: str, date: str,
+                        currency: str = '', status: str = '', recipient: str = '', recipient_country: str = ''):
     """Insert or update funding leg for an NVC code."""
     conn = _get_conn()
     now = _now()
     conn.execute("""
-        INSERT INTO reconciliation_records (nvc_code, funding_amount, funding_account_id, funding_date, first_seen_at, last_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO reconciliation_records (nvc_code, funding_amount, funding_account_id, funding_date,
+            funding_currency, funding_status, funding_recipient, funding_recipient_country, first_seen_at, last_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(nvc_code) DO UPDATE SET
             funding_amount = excluded.funding_amount,
             funding_account_id = excluded.funding_account_id,
             funding_date = excluded.funding_date,
+            funding_currency = excluded.funding_currency,
+            funding_status = excluded.funding_status,
+            funding_recipient = excluded.funding_recipient,
+            funding_recipient_country = excluded.funding_recipient_country,
             last_updated_at = ?
-    """, (nvc_code, amount, account_id, date, now, now, now))
+    """, (nvc_code, amount, account_id, date, currency, status, recipient, recipient_country, now, now, now))
     conn.commit()
     conn.close()
     recalculate_match_status(nvc_code)

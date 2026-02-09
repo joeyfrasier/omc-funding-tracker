@@ -210,7 +210,7 @@ export const api = {
   // Reconciliation Queue
   reconQueue: (params: {
     status?: string; tenant?: string; flag?: string; search?: string;
-    sort_by?: string; sort_dir?: string; limit?: number; offset?: number;
+    invoice_status?: string; sort_by?: string; sort_dir?: string; limit?: number; offset?: number;
   } = {}) => {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });

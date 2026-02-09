@@ -126,6 +126,10 @@ def sync_funding():
                 amount=float(p.get('amount') or 0),
                 account_id=str(p.get('account_id', '')),
                 date=p.get('payment_date', ''),
+                currency=p.get('currency', ''),
+                status=p.get('status', ''),
+                recipient=p.get('recipient_name', ''),
+                recipient_country=p.get('recipient_country', ''),
             )
             count += 1
 

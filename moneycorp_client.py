@@ -100,6 +100,7 @@ def get_all_omc_payments():
                     if parts[1].startswith('NVC'):
                         nvc_code = parts[1]
                 
+                recip = attrs.get('recipientDetails') or {}
                 all_payments.append({
                     'payment_id': p['id'],
                     'account_id': acc_id,
@@ -110,7 +111,9 @@ def get_all_omc_payments():
                     'status': attrs.get('paymentStatus'),
                     'payment_date': attrs.get('paymentDate'),
                     'value_date': attrs.get('paymentValueDate'),
-                    'recipient_name': (attrs.get('recipientDetails') or {}).get('bankAccountName'),
+                    'recipient_name': recip.get('bankAccountName'),
+                    'recipient_country': recip.get('bankAccountCountry'),
+                    'recipient_currency': recip.get('bankAccountCurrency'),
                     'payment_reference': pay_ref,
                     'client_reference': attrs.get('clientReference'),
                     'batch_reference': attrs.get('batchReference'),

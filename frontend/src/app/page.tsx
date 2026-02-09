@@ -7,7 +7,7 @@ import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
 import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord } from "@/lib/api";
 
-const TAB_NAMES = ["Overview", "Queue", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
+const TAB_NAMES = ["Overview", "Workbench", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -33,24 +33,27 @@ function QueueTab() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterTenant, setFilterTenant] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [filterInvStatus, setFilterInvStatus] = useState("");
   const [sortBy, setSortBy] = useState("last_updated_at");
   const [sortDir, setSortDir] = useState("desc");
 
   const loadQueue = useCallback(() => {
     setLoading(true);
     setError("");
-    api.reconQueue({
+    const params: Record<string, any> = {
       status: filterStatus || undefined,
       tenant: filterTenant || undefined,
       search: filterSearch || undefined,
       sort_by: sortBy,
       sort_dir: sortDir,
-      limit: 100,
-    })
+      limit: 200,
+    };
+    if (filterInvStatus) (params as any).invoice_status = filterInvStatus;
+    api.reconQueue(params)
       .then((res) => { setRecords(res.records); setTotal(res.total); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [filterStatus, filterTenant, filterSearch, sortBy, sortDir]);
+  }, [filterStatus, filterTenant, filterSearch, filterInvStatus, sortBy, sortDir]);
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
   useEffect(() => {
@@ -141,6 +144,22 @@ function QueueTab() {
           </select>
         </div>
         <div>
+          <label className="section-label block mb-2">Invoice Status</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={filterInvStatus}
+            onChange={(e) => setFilterInvStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="Processing">Processing</option>
+            <option value="In Flight">In Flight</option>
+            <option value="Approved">Approved</option>
+            <option value="Paid">Paid</option>
+            <option value="Draft">Draft</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <div>
           <label className="section-label block mb-2">Sort</label>
           <select
             className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
@@ -153,10 +172,10 @@ function QueueTab() {
             <option value="invoice_amount:asc">Lowest Amount</option>
           </select>
         </div>
-        {(filterStatus || filterTenant || filterSearch) && (
+        {(filterStatus || filterTenant || filterSearch || filterInvStatus) && (
           <button
             className="text-sm text-[var(--color-ws-orange)] font-semibold hover:underline pb-2"
-            onClick={() => { setFilterStatus(""); setFilterTenant(""); setFilterSearch(""); }}
+            onClick={() => { setFilterStatus(""); setFilterTenant(""); setFilterSearch(""); setFilterInvStatus(""); }}
           >
             Clear
           </button>
@@ -179,8 +198,10 @@ function QueueTab() {
                 <th>Status</th>
                 <th>Sources</th>
                 <th>Group</th>
+                <th>Inv. Status</th>
                 <th>Amount</th>
-                <th>Last Updated</th>
+                <th>Flag</th>
+                <th>Updated</th>
               </tr>
             </thead>
             <tbody>
@@ -204,7 +225,33 @@ function QueueTab() {
                     </div>
                   </td>
                   <td className="text-sm text-gray-500">{r.invoice_tenant || "—"}</td>
+                  <td>
+                    {r.invoice_status ? (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        r.invoice_status === "Processing" || r.invoice_status === "In Flight" ? "bg-orange-100 text-[var(--color-ws-orange)]" :
+                        r.invoice_status === "Paid" ? "bg-green-100 text-[var(--color-ws-green)]" :
+                        r.invoice_status === "Rejected" ? "bg-red-100 text-red-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}>{r.invoice_status}</span>
+                    ) : <span className="text-xs text-gray-300">—</span>}
+                  </td>
                   <td className="text-sm font-medium">{formatAmt(r.invoice_amount || r.remittance_amount || r.funding_amount)}</td>
+                  <td>
+                    {r.flag ? (
+                      <span
+                        className={`inline-block w-5 h-5 rounded-full text-center text-[10px] leading-5 cursor-help ${
+                          r.flag === "needs_outreach" ? "bg-red-100 text-red-600" :
+                          r.flag === "investigating" ? "bg-amber-100 text-amber-600" :
+                          r.flag === "escalated" ? "bg-purple-100 text-purple-600" :
+                          r.flag === "resolved" ? "bg-green-100 text-[var(--color-ws-green)]" :
+                          "bg-gray-100 text-gray-600"
+                        }`}
+                        title={`${r.flag.replace(/_/g, " ")}${r.flag_notes ? `: ${r.flag_notes}` : ""}`}
+                      >
+                        {r.flag === "needs_outreach" ? "!" : r.flag === "investigating" ? "?" : r.flag === "escalated" ? "↑" : "✓"}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="text-xs text-gray-400 whitespace-nowrap">
                     {r.last_updated_at ? new Date(r.last_updated_at).toLocaleDateString() : "—"}
                   </td>
@@ -390,8 +437,22 @@ function RecordDetailPanel({
               </div>
               {hasFunding ? (
                 <div className="space-y-1">
-                  <p className="text-lg font-bold">{formatAmt(record.funding_amount)}</p>
-                  <p className="text-xs text-gray-500">Account: {record.funding_account_id || "—"} · Date: {record.funding_date || "—"}</p>
+                  <p className="text-lg font-bold">
+                    {formatAmt(record.funding_amount)}
+                    {(record as any).funding_currency && (record as any).funding_currency !== "USD" && (
+                      <span className="ml-2 text-xs font-normal text-gray-500">{(record as any).funding_currency}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Account: {record.funding_account_id || "—"} · Date: {record.funding_date || "—"}
+                    {(record as any).funding_status && ` · Status: ${(record as any).funding_status}`}
+                  </p>
+                  {(record as any).funding_recipient && (
+                    <p className="text-xs text-gray-400">
+                      Recipient: {(record as any).funding_recipient}
+                      {(record as any).funding_recipient_country && ` (${(record as any).funding_recipient_country})`}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic">No MoneyCorp funding found</p>

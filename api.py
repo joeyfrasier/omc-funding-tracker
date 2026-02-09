@@ -580,6 +580,7 @@ def recon_queue(
     tenant: Optional[str] = Query(None),
     flag: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    invoice_status: Optional[str] = Query(None),
     sort_by: str = Query("last_updated_at"),
     sort_dir: str = Query("desc"),
     limit: int = Query(100, ge=1, le=500),
@@ -608,6 +609,10 @@ def recon_queue(
     if search:
         conditions.append("nvc_code LIKE ?")
         params.append(f"%{search}%")
+
+    if invoice_status:
+        conditions.append("invoice_status = ?")
+        params.append(invoice_status)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -1135,30 +1140,6 @@ def recon_flag(req: FlagRequest):
 
     updated = recon_db.get_recon_record(req.nvc_code)
     return {"success": True, "record": serialize(updated)}
-
-
-# ── Reconciliation Queue ─────────────────────────────────────────────────
-
-@app.get("/api/recon/queue")
-def recon_queue(
-    status: Optional[str] = Query(None),
-    tenant: Optional[str] = Query(None),
-    flag: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    sort_by: str = Query("priority"),
-    sort_dir: str = Query("asc"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-):
-    """Get unreconciled records as a prioritized work queue."""
-    records, total = recon_db.get_recon_records_queue(
-        status=status, tenant=tenant, flag=flag, search=search,
-        date_from=date_from, date_to=date_to, sort_by=sort_by,
-        sort_dir=sort_dir, limit=limit, offset=offset,
-    )
-    return serialize({"total": total, "count": len(records), "records": records})
 
 
 if __name__ == "__main__":
