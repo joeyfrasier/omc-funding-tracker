@@ -62,8 +62,8 @@ function OverviewTab() {
               <div>
                 <p className="text-sm font-semibold text-amber-900">Running in degraded mode</p>
                 <p className="text-xs text-amber-700">
-                  {hasDbError && "Database unreachable (SSH tunnel timeout). "}
-                  {hasGmailError && "Gmail API unavailable. "}
+                  {hasDbError && "Worksuite unreachable (SSH tunnel timeout). "}
+                  {hasGmailError && "PayOps Email unavailable. "}
                   Showing cached/local data only.
                 </p>
               </div>
@@ -76,12 +76,21 @@ function OverviewTab() {
       <div>
         <p className="section-label mb-4">Reconciliation Health</p>
         <div className="grid grid-cols-4 gap-4">
-          <MetricCard label="Match Rate" value={data ? `${data.match_rate}%` : "—"} />
-          <MetricCard label="Matched" value={data?.matched ?? "—"} />
+          <MetricCard
+            label="3-Way Match Rate"
+            value={data ? `${data.match_rate}%` : "—"}
+            delta={data && data.match_rate_2way > 0 ? `${data.match_rate_2way}% Worksuite verified` : undefined}
+            deltaColor={data && data.match_rate > 0 ? "green" : "gray"}
+          />
+          <MetricCard
+            label="Verified"
+            value={data?.matched_3way ?? "—"}
+            delta={data ? `of ${data.total_lines} remittance lines` : undefined}
+          />
           <MetricCard
             label="Issues"
-            value={data ? data.mismatched + data.not_found : "—"}
-            delta={data && (data.mismatched + data.not_found) > 0 ? `${data.mismatched} mismatch, ${data.not_found} missing` : undefined}
+            value={data ? data.unverified : "—"}
+            delta={data && data.unverified > 0 ? `${data.mismatched} mismatch · ${data.not_found} not in Worksuite · ${data.matched_2way} awaiting MoneyCorp` : undefined}
             deltaColor="red"
           />
           <MetricCard label="Total Value" value={data ? formatCurrency(data.total_value) : "—"} />
@@ -123,16 +132,16 @@ function OverviewTab() {
               <StatusDot status={hasDbError ? "error" : "ok"} />
               <span className="text-sm">
                 {hasDbError
-                  ? "Database: Unreachable"
-                  : `Database: ${data?.payments_count ?? 0} payments (7d)`}
+                  ? "Worksuite: Unreachable"
+                  : `Worksuite: ${data?.payments_count ?? 0} payments (7d)`}
               </span>
             </div>
             <div className="flex items-center gap-3">
               <StatusDot status={hasGmailError ? "error" : "ok"} />
               <span className="text-sm">
                 {hasGmailError
-                  ? "Gmail: Unavailable"
-                  : `Gmail: ${data?.processed_count ?? 0} processed`}
+                  ? "PayOps Email: Unavailable"
+                  : `PayOps Email: ${data?.processed_count ?? 0} processed`}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -608,17 +617,99 @@ function LoadingSkeleton({ rows = 3 }: { rows?: number }) {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    // If it looks like NVC codes, do a lookup
+    if (query.toUpperCase().startsWith("NVC") || query.includes(",")) {
+      setSearchLoading(true);
+      setActiveTab(-1); // Show search results
+      api.lookupNVC(query)
+        .then(setSearchResults)
+        .catch(() => setSearchResults(null))
+        .finally(() => setSearchLoading(false));
+    } else {
+      // Generic search — switch to appropriate tab
+      setActiveTab(-1);
+      setSearchResults({ type: "text", query });
+    }
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6">
-      <Header />
-      <Tabs tabs={TAB_NAMES} active={activeTab} onChange={setActiveTab} />
+      <Header onSearch={handleSearch} />
+      <Tabs tabs={TAB_NAMES} active={activeTab} onChange={(i) => { setActiveTab(i); setSearchQuery(""); setSearchResults(null); }} />
 
+      {activeTab === -1 && searchQuery && (
+        <SearchResultsView query={searchQuery} results={searchResults} loading={searchLoading} />
+      )}
       {activeTab === 0 && <OverviewTab />}
       {activeTab === 1 && <FundingEmailsTab />}
       {activeTab === 2 && <PayRunsTab />}
       {activeTab === 3 && <ReconcileTab />}
       {activeTab === 4 && <HistoryTab />}
+    </div>
+  );
+}
+
+/* ── Search Results ──────────────────────────────────────────────────── */
+
+function SearchResultsView({ query, results, loading }: { query: string; results: any; loading: boolean }) {
+  if (loading) return <LoadingSkeleton rows={3} />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <p className="section-label">Search Results</p>
+        <span className="text-sm text-gray-500">for &ldquo;{query}&rdquo;</span>
+      </div>
+
+      {results?.found?.length > 0 && (
+        <div className="space-y-3">
+          {results.found.map((code: string) => (
+            <div key={code} className="card">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="font-semibold">{code}</span>
+                <span className="badge badge-green">Found in Worksuite</span>
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="section-label">Tenant</span>
+                  <p className="mt-1">{(results.results[code]?.tenant || "").replace(".worksuite.com", "")}</p>
+                </div>
+                <div>
+                  <span className="section-label">Amount</span>
+                  <p className="mt-1 font-medium">{formatCurrencyFull(results.results[code]?.total_amount || 0)}</p>
+                </div>
+                <div>
+                  <span className="section-label">Currency</span>
+                  <p className="mt-1">{results.results[code]?.currency || "USD"}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {results?.missing?.length > 0 && (
+        <div className="card border-[var(--color-ws-orange)]">
+          <p className="text-sm font-semibold text-[var(--color-ws-orange)] mb-1">Not found in Worksuite</p>
+          <p className="text-sm text-gray-600">{results.missing.join(", ")}</p>
+        </div>
+      )}
+
+      {results?.type === "text" && (
+        <p className="text-sm text-gray-400">
+          Text search coming soon. Try searching for NVC codes (e.g., NVC7KTPCPVVV) for instant lookup.
+        </p>
+      )}
+
+      {!results && !loading && (
+        <p className="text-sm text-gray-400">No results found.</p>
+      )}
     </div>
   );
 }

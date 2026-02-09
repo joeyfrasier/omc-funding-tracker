@@ -30,9 +30,14 @@ export interface OverviewData {
   payments_count: number;
   processed_count: number;
   match_rate: number;
+  match_rate_2way: number;
+  matched_3way: number;
+  matched_2way: number;
   matched: number;
   mismatched: number;
   not_found: number;
+  unverified: number;
+  total_lines: number;
   total_value: number;
   total_emails: number;
   total_remittances: number;

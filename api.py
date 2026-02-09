@@ -120,7 +120,25 @@ def overview(days: int = Query(7, ge=1, le=365)):
 
     total_issues = recon_stats["mismatched"] + recon_stats["not_found"]
     total_lines = recon_stats["matched"] + total_issues
-    match_rate = (recon_stats["matched"] / total_lines * 100) if total_lines > 0 else 0
+
+    # 3-way match rate: Remittance ↔ Worksuite ↔ MoneyCorp
+    # Currently MoneyCorp verification is not yet integrated,
+    # so all "matched" items are only 2-way (remittance ↔ Worksuite).
+    # Items without MoneyCorp confirmation count as unverified.
+    two_way_matched = recon_stats["matched"]
+    moneycorp_verified = 0  # TODO: populate when MoneyCorp API is integrated
+    three_way_matched = moneycorp_verified
+    
+    # Total remittance lines that should be verified
+    total_to_verify = recon_stats.get("total_matches", total_lines) or total_lines
+    
+    # 3-way match rate (0% until MoneyCorp is integrated)
+    match_rate_3way = (three_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
+    # 2-way match rate (remittance ↔ Worksuite only)  
+    match_rate_2way = (two_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
+    
+    # Issues = anything not fully 3-way verified
+    unverified = total_to_verify - three_way_matched
 
     # Agency breakdown
     agencies = []
@@ -139,10 +157,15 @@ def overview(days: int = Query(7, ge=1, le=365)):
     return serialize({
         "payments_count": len(payments),
         "processed_count": len(processed),
-        "match_rate": round(match_rate, 1),
-        "matched": recon_stats["matched"],
+        "match_rate": round(match_rate_3way, 1),
+        "match_rate_2way": round(match_rate_2way, 1),
+        "matched_3way": three_way_matched,
+        "matched_2way": two_way_matched,
+        "matched": two_way_matched,  # backward compat
         "mismatched": recon_stats["mismatched"],
         "not_found": recon_stats["not_found"],
+        "unverified": unverified,
+        "total_lines": total_to_verify,
         "total_value": recon_stats.get("total_value", 0),
         "total_emails": recon_stats["total_emails"],
         "total_remittances": recon_stats["total_remittances"],
