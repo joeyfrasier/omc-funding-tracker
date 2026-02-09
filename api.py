@@ -572,6 +572,248 @@ def recon_record_detail(nvc_code: str):
     return record
 
 
+# ── Queue & Cross-Search ─────────────────────────────────────────────────
+
+@app.get("/api/recon/queue")
+def recon_queue(
+    status: Optional[str] = Query(None),
+    tenant: Optional[str] = Query(None),
+    flag: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: str = Query("last_updated_at"),
+    sort_dir: str = Query("desc"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Get reconciliation queue — unreconciled records sorted by priority."""
+    import sqlite3
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = sqlite3.Row
+
+    conditions = []
+    params: list = []
+
+    if status:
+        conditions.append("match_status = ?")
+        params.append(status)
+
+    if tenant:
+        conditions.append("invoice_tenant LIKE ?")
+        params.append(f"%{tenant}%")
+
+    if flag:
+        conditions.append("flag = ?")
+        params.append(flag)
+
+    if search:
+        conditions.append("nvc_code LIKE ?")
+        params.append(f"%{search}%")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # Count
+    total = conn.execute(f"SELECT COUNT(*) FROM reconciliation_records {where}", params).fetchone()[0]
+
+    # Sort
+    allowed_sorts = {"last_updated_at", "first_seen_at", "invoice_amount", "remittance_amount", "funding_amount"}
+    sort_col = sort_by if sort_by in allowed_sorts else "last_updated_at"
+    direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+
+    # Priority ordering: mismatch first, then partial, then single-source
+    order = f"""
+        CASE match_status
+            WHEN 'mismatch' THEN 1
+            WHEN 'remittance_only' THEN 2
+            WHEN 'invoice_only' THEN 3
+            WHEN 'unmatched' THEN 4
+            WHEN 'partial_2way' THEN 5
+            WHEN 'full_3way' THEN 6
+            WHEN 'resolved' THEN 7
+        END, {sort_col} {direction}
+    """
+
+    rows = conn.execute(
+        f"SELECT * FROM reconciliation_records {where} ORDER BY {order} LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
+    conn.close()
+    return {"records": [dict(r) for r in rows], "total": total}
+
+
+@app.get("/api/search/cross")
+def cross_search(
+    q: str = Query(""),
+    source: str = Query("invoices"),
+    amount_min: Optional[float] = Query(None),
+    amount_max: Optional[float] = Query(None),
+    tenant: Optional[str] = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Cross-search: find records in a specific source for manual association."""
+    import sqlite3
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = sqlite3.Row
+
+    conditions = []
+    params: list = []
+
+    if source == "invoices":
+        conditions.append("invoice_amount IS NOT NULL")
+        if q:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{q}%")
+        if amount_min is not None:
+            conditions.append("invoice_amount >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append("invoice_amount <= ?")
+            params.append(amount_max)
+        if tenant:
+            conditions.append("invoice_tenant LIKE ?")
+            params.append(f"%{tenant}%")
+    elif source == "funding":
+        conditions.append("funding_amount IS NOT NULL")
+        if q:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{q}%")
+        if amount_min is not None:
+            conditions.append("funding_amount >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append("funding_amount <= ?")
+            params.append(amount_max)
+    elif source == "emails":
+        conditions.append("remittance_amount IS NOT NULL")
+        if q:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{q}%")
+        if amount_min is not None:
+            conditions.append("remittance_amount >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append("remittance_amount <= ?")
+            params.append(amount_max)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = conn.execute(
+        f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ?",
+        params + [limit]
+    ).fetchall()
+    conn.close()
+    return {"results": [dict(r) for r in rows], "count": len(rows)}
+
+
+@app.post("/api/recon/associate")
+def recon_associate(body: dict):
+    """Manually associate two records — merge data from one NVC into another."""
+    import sqlite3
+    from datetime import datetime
+
+    nvc = body.get("nvc_code", "")
+    target = body.get("associate_with", "")
+    source = body.get("source", "")
+    notes = body.get("notes", "")
+
+    if not nvc or not target:
+        raise HTTPException(status_code=400, detail="nvc_code and associate_with required")
+
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = sqlite3.Row
+
+    target_row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (target,)).fetchone()
+    if not target_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Target NVC {target} not found")
+
+    target_row = dict(target_row)
+    now = datetime.now().isoformat()
+
+    # Merge the missing data from target into the primary record
+    updates = {"last_updated_at": now, "notes": f"Manually associated with {target}. {notes}".strip()}
+    if source == "invoices" and target_row.get("invoice_amount"):
+        updates.update({
+            "invoice_amount": target_row["invoice_amount"],
+            "invoice_status": target_row["invoice_status"],
+            "invoice_tenant": target_row["invoice_tenant"],
+            "invoice_payrun_ref": target_row["invoice_payrun_ref"],
+            "invoice_currency": target_row["invoice_currency"],
+        })
+    elif source == "funding" and target_row.get("funding_amount"):
+        updates.update({
+            "funding_amount": target_row["funding_amount"],
+            "funding_account_id": target_row["funding_account_id"],
+            "funding_date": target_row["funding_date"],
+        })
+    elif source == "emails" and target_row.get("remittance_amount"):
+        updates.update({
+            "remittance_amount": target_row["remittance_amount"],
+            "remittance_date": target_row["remittance_date"],
+            "remittance_source": target_row["remittance_source"],
+            "remittance_email_id": target_row["remittance_email_id"],
+        })
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    conn.execute(
+        f"UPDATE reconciliation_records SET {set_clause} WHERE nvc_code = ?",
+        list(updates.values()) + [nvc]
+    )
+    conn.commit()
+    conn.close()
+
+    # Recalculate match status
+    recon_db.recalculate_match_status(nvc)
+
+    record = recon_db.get_recon_record(nvc)
+    return {"success": True, "record": record}
+
+
+@app.post("/api/recon/flag")
+def recon_flag(body: dict):
+    """Flag a record for follow-up."""
+    import sqlite3
+    from datetime import datetime
+
+    nvc = body.get("nvc_code", "")
+    flag = body.get("flag", "")
+    notes = body.get("notes", "")
+
+    if not nvc:
+        raise HTTPException(status_code=400, detail="nvc_code required")
+
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+
+    # Add columns if they don't exist
+    try:
+        conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag_notes TEXT")
+    except Exception:
+        pass
+
+    now = datetime.now().isoformat()
+
+    if flag == "resolved":
+        conn.execute(
+            "UPDATE reconciliation_records SET flag = ?, flag_notes = ?, resolved_at = ?, resolved_by = ?, last_updated_at = ? WHERE nvc_code = ?",
+            (flag, notes, now, "ops_user", now, nvc)
+        )
+    else:
+        conn.execute(
+            "UPDATE reconciliation_records SET flag = ?, flag_notes = ?, last_updated_at = ? WHERE nvc_code = ?",
+            (flag, notes, now, nvc)
+        )
+
+    conn.commit()
+    conn.close()
+
+    if flag == "resolved":
+        recon_db.recalculate_match_status(nvc)
+
+    return {"success": True}
+
+
 # ── Sync Control ─────────────────────────────────────────────────────────
 
 @app.post("/api/sync/trigger")

@@ -41,9 +41,11 @@ export interface OverviewData {
   total_value: number;
   total_emails: number;
   total_remittances: number;
-  agencies: { name: string; count: number; total: number }[];
+  agencies: { name: string; count: number; total: number; reconciled_count?: number; unreconciled_count?: number }[];
   errors: Record<string, string>;
   services: Record<string, string>;
+  sync?: Record<string, string>;
+  funding_count?: number;
 }
 
 export interface EmailItem {
@@ -151,6 +153,31 @@ export interface MoneyCorpAccount {
   currencies: MoneyCorpCurrency[];
 }
 
+export interface ReconRecord {
+  nvc_code: string;
+  remittance_amount: number | null;
+  remittance_date: string | null;
+  remittance_source: string | null;
+  remittance_email_id: string | null;
+  invoice_amount: number | null;
+  invoice_status: string | null;
+  invoice_tenant: string | null;
+  invoice_payrun_ref: string | null;
+  invoice_currency: string | null;
+  funding_amount: number | null;
+  funding_account_id: string | null;
+  funding_date: string | null;
+  match_status: string;
+  match_flags: string;
+  first_seen_at: string;
+  last_updated_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  notes: string | null;
+  flag: string | null;
+  flag_notes: string | null;
+}
+
 export const api = {
   health: () => fetchAPI<{ status: string }>("/api/health"),
   overview: (days = 7) => fetchAPI<OverviewData>(`/api/overview?days=${days}`),
@@ -179,4 +206,41 @@ export const api = {
     fetchAPI<{ accounts: MoneyCorpAccount[]; count: number; total_currencies: number }>(
       "/api/moneycorp/subaccounts"
     ),
+
+  // Reconciliation Queue
+  reconQueue: (params: {
+    status?: string; tenant?: string; flag?: string; search?: string;
+    sort_by?: string; sort_dir?: string; limit?: number; offset?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });
+    return fetchAPI<{ records: ReconRecord[]; total: number }>(`/api/recon/queue?${qs}`);
+  },
+
+  reconRecord: (nvcCode: string) =>
+    fetchAPI<ReconRecord>(`/api/recon/record/${encodeURIComponent(nvcCode)}`),
+
+  reconSummary: () =>
+    fetchAPI<Record<string, number>>("/api/recon/summary"),
+
+  crossSearch: (params: { q: string; source: string; amount_min?: number; amount_max?: number; tenant?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });
+    return fetchAPI<{ results: any[]; count: number }>(`/api/search/cross?${qs}`);
+  },
+
+  reconSuggestions: (nvcCode: string) =>
+    fetchAPI<{ suggestions: any[] }>(`/api/recon/suggestions/${encodeURIComponent(nvcCode)}`),
+
+  reconAssociate: (data: { nvc_code: string; associate_with: string; source: string; notes?: string }) =>
+    fetchAPI<{ success: boolean; record: ReconRecord }>("/api/recon/associate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  reconFlag: (data: { nvc_code: string; flag: string; notes?: string }) =>
+    fetchAPI<{ success: boolean }>("/api/recon/flag", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

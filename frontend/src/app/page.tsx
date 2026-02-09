@@ -5,9 +5,9 @@ import Header from "@/components/Header";
 import Tabs from "@/components/Tabs";
 import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
-import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount } from "@/lib/api";
+import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord } from "@/lib/api";
 
-const TAB_NAMES = ["Overview", "Funding Emails", "Pay Runs", "Worksuite Tenants", "MoneyCorp", "Reconcile", "History"];
+const TAB_NAMES = ["Queue", "Overview", "Funding Emails", "Pay Runs", "MoneyCorp", "Tenants"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -15,6 +15,535 @@ function formatCurrency(n: number) {
 
 function formatCurrencyFull(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
+}
+
+/* ── Overview Tab ────────────────────────────────────────────────────── */
+
+/* ── Queue Tab — Primary Workspace ───────────────────────────────────── */
+
+function QueueTab() {
+  const [records, setRecords] = useState<ReconRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState<ReconRecord | null>(null);
+  const [summary, setSummary] = useState<Record<string, number>>({});
+
+  // Filters
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterTenant, setFilterTenant] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
+  const [sortBy, setSortBy] = useState("last_updated_at");
+  const [sortDir, setSortDir] = useState("desc");
+
+  const loadQueue = useCallback(() => {
+    setLoading(true);
+    setError("");
+    api.reconQueue({
+      status: filterStatus || undefined,
+      tenant: filterTenant || undefined,
+      search: filterSearch || undefined,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      limit: 100,
+    })
+      .then((res) => { setRecords(res.records); setTotal(res.total); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [filterStatus, filterTenant, filterSearch, sortBy, sortDir]);
+
+  useEffect(() => { loadQueue(); }, [loadQueue]);
+  useEffect(() => {
+    api.reconSummary().then(setSummary).catch(() => {});
+  }, []);
+
+  const statusLabel = (s: string) => {
+    const map: Record<string, string> = {
+      mismatch: "Amount Mismatch",
+      invoice_only: "Missing Remittance",
+      remittance_only: "Missing Invoice",
+      unmatched: "Funding Only",
+      partial_2way: "Partial (2-way)",
+      full_3way: "Fully Reconciled",
+      resolved: "Resolved",
+    };
+    return map[s] || s;
+  };
+
+  const statusColor = (s: string) => {
+    if (s === "full_3way" || s === "resolved") return "text-[var(--color-ws-green)]";
+    if (s === "mismatch") return "text-red-600";
+    if (s === "partial_2way") return "text-blue-600";
+    return "text-[var(--color-ws-orange)]";
+  };
+
+  const hasLeg = (r: ReconRecord, leg: "remittance" | "invoice" | "funding") => {
+    if (leg === "remittance") return r.remittance_amount !== null;
+    if (leg === "invoice") return r.invoice_amount !== null;
+    return r.funding_amount !== null;
+  };
+
+  const formatAmt = (n: number | null) =>
+    n !== null ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—";
+
+  // Summary pills
+  const pills = [
+    { key: "mismatch", label: "Mismatch", count: summary.mismatch || 0, color: "bg-red-100 text-red-700" },
+    { key: "invoice_only", label: "Missing Remittance", count: summary.invoice_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
+    { key: "remittance_only", label: "Missing Invoice", count: summary.remittance_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
+    { key: "unmatched", label: "Funding Only", count: summary.unmatched || 0, color: "bg-gray-100 text-gray-600" },
+    { key: "partial_2way", label: "Partial 2-way", count: summary.partial_2way || 0, color: "bg-blue-100 text-blue-700" },
+    { key: "", label: "All", count: summary.total || 0, color: "bg-gray-100 text-gray-700" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Status pills */}
+      <div className="flex gap-2 flex-wrap">
+        {pills.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setFilterStatus(filterStatus === p.key ? "" : p.key)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              filterStatus === p.key
+                ? "ring-2 ring-[var(--color-ws-orange)] ring-offset-1"
+                : ""
+            } ${p.color}`}
+          >
+            {p.label} ({p.count})
+          </button>
+        ))}
+      </div>
+
+      {/* Filters row */}
+      <div className="flex items-end gap-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label className="section-label block mb-2">Search NVC Code</label>
+          <input
+            type="text"
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-full"
+            placeholder="NVC7KYDFK3QF..."
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="section-label block mb-2">Group</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={filterTenant}
+            onChange={(e) => setFilterTenant(e.target.value)}
+          >
+            <option value="">All Groups</option>
+            {["omcbbdo","omcflywheel","omcohg","omnicom","omnicombranding","omnicomddb","omnicommedia","omnicomoac","omnicomprecision","omnicomprg","omnicomtbwa"].map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="section-label block mb-2">Sort</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={`${sortBy}:${sortDir}`}
+            onChange={(e) => { const [b, d] = e.target.value.split(":"); setSortBy(b); setSortDir(d); }}
+          >
+            <option value="last_updated_at:desc">Recently Updated</option>
+            <option value="first_seen_at:asc">Oldest First</option>
+            <option value="invoice_amount:desc">Highest Amount</option>
+            <option value="invoice_amount:asc">Lowest Amount</option>
+          </select>
+        </div>
+        {(filterStatus || filterTenant || filterSearch) && (
+          <button
+            className="text-sm text-[var(--color-ws-orange)] font-semibold hover:underline pb-2"
+            onClick={() => { setFilterStatus(""); setFilterTenant(""); setFilterSearch(""); }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400">
+        {total} records{filterStatus || filterTenant || filterSearch ? " (filtered)" : ""}
+      </p>
+
+      {error && <ErrorBox message={error} />}
+      {loading && <LoadingSkeleton rows={8} />}
+
+      {!loading && records.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <table className="ws-table">
+            <thead>
+              <tr>
+                <th>NVC Code</th>
+                <th>Status</th>
+                <th>Sources</th>
+                <th>Group</th>
+                <th>Amount</th>
+                <th>Last Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((r) => (
+                <tr
+                  key={r.nvc_code}
+                  className={`cursor-pointer ${selectedRecord?.nvc_code === r.nvc_code ? "bg-orange-50" : ""}`}
+                  onClick={() => setSelectedRecord(r)}
+                >
+                  <td className="font-mono text-sm font-medium">{r.nvc_code}</td>
+                  <td>
+                    <span className={`text-xs font-semibold ${statusColor(r.match_status)}`}>
+                      {statusLabel(r.match_status)}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="flex gap-1">
+                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "remittance") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Remittance" />
+                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "invoice") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Invoice" />
+                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "funding") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Funding" />
+                    </div>
+                  </td>
+                  <td className="text-sm text-gray-500">{r.invoice_tenant || "—"}</td>
+                  <td className="text-sm font-medium">{formatAmt(r.invoice_amount || r.remittance_amount || r.funding_amount)}</td>
+                  <td className="text-xs text-gray-400 whitespace-nowrap">
+                    {r.last_updated_at ? new Date(r.last_updated_at).toLocaleDateString() : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && records.length === 0 && !error && (
+        <div className="py-12 text-center">
+          <p className="text-lg font-semibold text-gray-400">
+            {filterStatus === "full_3way" ? "All reconciled records shown above" : "No unreconciled records found"}
+          </p>
+          <p className="text-sm text-gray-300 mt-1">
+            {filterStatus || filterTenant || filterSearch ? "Try adjusting your filters" : "Everything is reconciled!"}
+          </p>
+        </div>
+      )}
+
+      {/* Side Panel */}
+      {selectedRecord && (
+        <RecordDetailPanel
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          onUpdate={(updated) => {
+            setSelectedRecord(updated);
+            setRecords((prev) => prev.map((r) => r.nvc_code === updated.nvc_code ? updated : r));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Record Detail / Cross-Search Panel ─────────────────────────────── */
+
+function RecordDetailPanel({
+  record,
+  onClose,
+  onUpdate,
+}: {
+  record: ReconRecord;
+  onClose: () => void;
+  onUpdate: (r: ReconRecord) => void;
+}) {
+  const [searchSource, setSearchSource] = useState<"invoices" | "funding" | "emails">(
+    !record.invoice_amount ? "invoices" : !record.funding_amount ? "funding" : "emails"
+  );
+  const [searchQuery, setSearchQuery] = useState(record.nvc_code);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [flagNote, setFlagNote] = useState("");
+  const [showFlagInput, setShowFlagInput] = useState(false);
+
+  const doSearch = () => {
+    setSearching(true);
+    api.crossSearch({
+      q: searchQuery,
+      source: searchSource,
+      amount_min: (record.invoice_amount || record.remittance_amount || record.funding_amount || 0) * 0.95,
+      amount_max: (record.invoice_amount || record.remittance_amount || record.funding_amount || 0) * 1.05,
+      tenant: record.invoice_tenant || undefined,
+      limit: 10,
+    })
+      .then((res) => setSearchResults(res.results))
+      .catch(() => setSearchResults([]))
+      .finally(() => setSearching(false));
+  };
+
+  const handleAssociate = (targetNvc: string) => {
+    api.reconAssociate({
+      nvc_code: record.nvc_code,
+      associate_with: targetNvc,
+      source: searchSource,
+    })
+      .then((res) => {
+        if (res.record) onUpdate(res.record);
+      })
+      .catch((e) => alert(`Association failed: ${e.message}`));
+  };
+
+  const handleFlag = (flag: string) => {
+    api.reconFlag({ nvc_code: record.nvc_code, flag, notes: flagNote })
+      .then(() => {
+        onUpdate({ ...record, flag, flag_notes: flagNote });
+        setShowFlagInput(false);
+        setFlagNote("");
+      })
+      .catch((e) => alert(`Flag failed: ${e.message}`));
+  };
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const formatAmt = (n: number | null) =>
+    n !== null ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—";
+
+  const hasRemittance = record.remittance_amount !== null;
+  const hasInvoice = record.invoice_amount !== null;
+  const hasFunding = record.funding_amount !== null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={onClose}>
+      <div
+        className="bg-white w-full max-w-xl h-full overflow-auto shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-[var(--color-ws-gray)] p-6 flex items-center justify-between z-10">
+          <div>
+            <h2 className="text-lg font-bold font-mono">{record.nvc_code}</h2>
+            <p className={`text-sm font-semibold ${
+              record.match_status === "full_3way" ? "text-[var(--color-ws-green)]" :
+              record.match_status === "mismatch" ? "text-red-600" :
+              "text-[var(--color-ws-orange)]"
+            }`}>
+              {record.match_status === "full_3way" ? "Fully Reconciled" :
+               record.match_status === "mismatch" ? "Amount Mismatch" :
+               record.match_status === "partial_2way" ? "Partial Match (2-way)" :
+               record.match_status === "invoice_only" ? "Missing Remittance" :
+               record.match_status === "remittance_only" ? "Missing Invoice" :
+               record.match_status === "unmatched" ? "Funding Only" : record.match_status}
+            </p>
+          </div>
+          <button
+            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Three Sources */}
+          <div className="space-y-3">
+            <p className="section-label">Sources</p>
+
+            {/* Remittance */}
+            <div className={`rounded-xl p-4 border ${hasRemittance ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Remittance (Email)</span>
+                <span className={`w-2 h-2 rounded-full ${hasRemittance ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
+              </div>
+              {hasRemittance ? (
+                <div className="space-y-1">
+                  <p className="text-lg font-bold">{formatAmt(record.remittance_amount)}</p>
+                  <p className="text-xs text-gray-500">Source: {record.remittance_source} · Date: {record.remittance_date || "—"}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No remittance email found</p>
+              )}
+            </div>
+
+            {/* Invoice */}
+            <div className={`rounded-xl p-4 border ${hasInvoice ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invoice (Worksuite)</span>
+                <span className={`w-2 h-2 rounded-full ${hasInvoice ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
+              </div>
+              {hasInvoice ? (
+                <div className="space-y-1">
+                  <p className="text-lg font-bold">{formatAmt(record.invoice_amount)}</p>
+                  <p className="text-xs text-gray-500">
+                    Group: {record.invoice_tenant || "—"} · Status: {record.invoice_status || "—"} · Pay Run: {record.invoice_payrun_ref || "—"}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No Worksuite invoice found</p>
+              )}
+            </div>
+
+            {/* Funding */}
+            <div className={`rounded-xl p-4 border ${hasFunding ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Funding (MoneyCorp)</span>
+                <span className={`w-2 h-2 rounded-full ${hasFunding ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
+              </div>
+              {hasFunding ? (
+                <div className="space-y-1">
+                  <p className="text-lg font-bold">{formatAmt(record.funding_amount)}</p>
+                  <p className="text-xs text-gray-500">Account: {record.funding_account_id || "—"} · Date: {record.funding_date || "—"}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No MoneyCorp funding found</p>
+              )}
+            </div>
+          </div>
+
+          {/* Amount Mismatch Detail */}
+          {record.match_status === "mismatch" && (
+            <div className="rounded-xl bg-red-50 p-4 border border-red-200">
+              <p className="text-xs font-semibold text-red-700 mb-2">Amount Mismatch Details</p>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div><span className="text-gray-500">Remittance:</span> {formatAmt(record.remittance_amount)}</div>
+                <div><span className="text-gray-500">Invoice:</span> {formatAmt(record.invoice_amount)}</div>
+                <div><span className="text-gray-500">Funding:</span> {formatAmt(record.funding_amount)}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Cross-Search */}
+          {record.match_status !== "full_3way" && (
+            <div>
+              <p className="section-label mb-3">Find Missing Source</p>
+              <div className="flex gap-2 mb-3">
+                {(["invoices", "funding", "emails"] as const).map((s) => (
+                  <button
+                    key={s}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                      searchSource === s ? "bg-[var(--color-ws-orange)] text-white" : "bg-gray-100 text-gray-600"
+                    }`}
+                    onClick={() => setSearchSource(s)}
+                  >
+                    {s === "invoices" ? "Worksuite" : s === "funding" ? "MoneyCorp" : "Emails"}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+                  placeholder="Search NVC code, amount, description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && doSearch()}
+                />
+                <button className="btn btn-black text-sm" onClick={doSearch} disabled={searching}>
+                  {searching ? "..." : "Search"}
+                </button>
+              </div>
+
+              {searchResults.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {searchResults.map((r: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-[var(--color-ws-gray)] hover:border-[var(--color-ws-orange)] transition-colors">
+                      <div>
+                        <p className="text-sm font-mono font-medium">{r.nvc_code || r.reference || r.subject || "—"}</p>
+                        <p className="text-xs text-gray-500">
+                          {r.invoice_tenant || r.tenant || ""} · {formatAmt(r.invoice_amount || r.amount || r.total_amount || null)}
+                          {r.invoice_status ? ` · ${r.invoice_status}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        className="btn btn-outline text-xs"
+                        onClick={() => handleAssociate(r.nvc_code || r.reference)}
+                      >
+                        Associate
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {searchResults.length === 0 && !searching && searchQuery && (
+                <p className="text-xs text-gray-400 mt-2">No results. Try a different search term or source.</p>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="border-t border-[var(--color-ws-gray)] pt-4">
+            <p className="section-label mb-3">Actions</p>
+            <div className="flex flex-wrap gap-2">
+              {!showFlagInput ? (
+                <>
+                  <button
+                    className="btn btn-outline text-xs"
+                    onClick={() => setShowFlagInput(true)}
+                  >
+                    Flag for Follow-up
+                  </button>
+                  {record.match_status !== "resolved" && (
+                    <button
+                      className="btn btn-outline text-xs"
+                      onClick={() => handleFlag("resolved")}
+                    >
+                      Mark Resolved
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="w-full space-y-2">
+                  <textarea
+                    className="w-full border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+                    placeholder="Add a note (e.g., 'Emailed omcbbdo finance team 2/9')"
+                    rows={2}
+                    value={flagNote}
+                    onChange={(e) => setFlagNote(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button className="btn btn-black text-xs" onClick={() => handleFlag("needs_outreach")}>
+                      Needs Outreach
+                    </button>
+                    <button className="btn btn-outline text-xs" onClick={() => handleFlag("investigating")}>
+                      Investigating
+                    </button>
+                    <button className="btn btn-outline text-xs" onClick={() => handleFlag("escalated")}>
+                      Escalated
+                    </button>
+                    <button className="text-xs text-gray-400 hover:underline" onClick={() => setShowFlagInput(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {record.flag && (
+              <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-xs font-semibold text-amber-700">
+                  Flagged: {record.flag.replace(/_/g, " ")}
+                </p>
+                {record.flag_notes && <p className="text-xs text-amber-600 mt-1">{record.flag_notes}</p>}
+              </div>
+            )}
+
+            {record.notes && (
+              <div className="mt-3 p-3 rounded-lg bg-gray-50 border border-[var(--color-ws-gray)]">
+                <p className="text-xs text-gray-500">{record.notes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Metadata */}
+          <div className="border-t border-[var(--color-ws-gray)] pt-4 text-xs text-gray-400 space-y-1">
+            <p>First seen: {record.first_seen_at ? new Date(record.first_seen_at).toLocaleString() : "—"}</p>
+            <p>Last updated: {record.last_updated_at ? new Date(record.last_updated_at).toLocaleString() : "—"}</p>
+            {record.resolved_at && <p>Resolved: {new Date(record.resolved_at).toLocaleString()} by {record.resolved_by || "—"}</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ── Overview Tab ────────────────────────────────────────────────────── */
@@ -1057,13 +1586,12 @@ export default function Home() {
       {activeTab === -1 && searchQuery && (
         <SearchResultsView query={searchQuery} results={searchResults} loading={searchLoading} />
       )}
-      {activeTab === 0 && <OverviewTab />}
-      {activeTab === 1 && <FundingEmailsTab />}
-      {activeTab === 2 && <PayRunsTab />}
-      {activeTab === 3 && <WorksuiteTenantsTab />}
+      {activeTab === 0 && <QueueTab />}
+      {activeTab === 1 && <OverviewTab />}
+      {activeTab === 2 && <FundingEmailsTab />}
+      {activeTab === 3 && <PayRunsTab />}
       {activeTab === 4 && <MoneyCorpTab />}
-      {activeTab === 5 && <ReconcileTab />}
-      {activeTab === 6 && <HistoryTab />}
+      {activeTab === 5 && <WorksuiteTenantsTab />}
     </div>
   );
 }
