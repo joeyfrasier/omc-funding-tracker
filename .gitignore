@@ -8,3 +8,6 @@ data/
 .pytest_cache/
 connection_test_report.md
 test_connections.py
+frontend/node_modules
+frontend/.next
+frontend/.env.local
