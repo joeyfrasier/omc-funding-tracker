@@ -51,8 +51,8 @@
       "display_name": "Omnicom DDB",
       "group": "Omnicom Advertising",
       "platform_slug": "omnicomddb",
-      "happyplace_client_id": null,
-      "environment": "us-e-6"
+      "happyplace_client_id": 212,
+      "environment": "us-e-5"
     },
     {
       "slug": "omnicommedia",

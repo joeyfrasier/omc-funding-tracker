@@ -24,7 +24,7 @@ const TENANT_MAP: Record<string, TenantPlatformConfig> = {
   omcohg:            { platform_slug: "omcohg",            environment: "us-e-6", client_id: 351 },
   omnicom:           { platform_slug: "omnicom",           environment: "us-e-6", client_id: 325 },
   omnicombranding:   { platform_slug: "omnicombranding",   environment: "us-e-6", client_id: 357 },
-  omnicomddb:        { platform_slug: "omnicomddb",        environment: "us-e-6", client_id: null }, // TODO: need client_id
+  omnicomddb:        { platform_slug: "omnicomddb",        environment: "us-e-5", client_id: 212 },
   omnicommedia:      { platform_slug: "omnicommedia",      environment: "us-e-6", client_id: 354 },
   omnicomoac:        { platform_slug: "omnicomoac",        environment: "us-e-6", client_id: 356 },
   omnicomprecision:  { platform_slug: "omnicomprecision",  environment: "us-e-6", client_id: 372 },
