@@ -153,6 +153,22 @@ export interface MoneyCorpAccount {
   currencies: MoneyCorpCurrency[];
 }
 
+export interface CachedInvoice {
+  nvc_code: string;
+  invoice_number: string;
+  total_amount: number;
+  currency: string;
+  status: number;
+  status_label: string;
+  paid_date: string;
+  processing_date: string;
+  in_flight_date: string;
+  tenant: string;
+  payrun_id: string;
+  created_at: string;
+  fetched_at: string;
+}
+
 export interface ReconRecord {
   nvc_code: string;
   remittance_amount: number | null;
@@ -209,6 +225,26 @@ export const api = {
 
   emailDetail: (emailId: string) =>
     fetchAPI<any>(`/api/emails/${encodeURIComponent(emailId)}`),
+
+  cachedInvoices: (params: {
+    tenant?: string; status?: string; search?: string;
+    sort_by?: string; sort_dir?: string; limit?: number; offset?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });
+    return fetchAPI<{ invoices: CachedInvoice[]; total: number }>(`/api/invoices/cached?${qs}`);
+  },
+
+  cachedPayruns: (params: {
+    tenant?: string; status?: number; search?: string;
+    sort_by?: string; sort_dir?: string; limit?: number; offset?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });
+    return fetchAPI<{ count: number; payruns: PayRun[] }>(`/api/payruns/cached?${qs}`);
+  },
+
+  syncStatus: () => fetchAPI<{ sources: any[] }>("/api/sync/status"),
 
   // Reconciliation Queue
   reconQueue: (params: {

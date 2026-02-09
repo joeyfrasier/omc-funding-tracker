@@ -68,6 +68,24 @@ def init_recon_db():
             fetched_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_payruns_tenant ON cached_payruns(tenant);
+
+        CREATE TABLE IF NOT EXISTS cached_invoices (
+            nvc_code TEXT PRIMARY KEY,
+            invoice_number TEXT,
+            total_amount REAL,
+            currency TEXT,
+            status INTEGER,
+            status_label TEXT,
+            paid_date TEXT,
+            processing_date TEXT,
+            in_flight_date TEXT,
+            tenant TEXT,
+            payrun_id TEXT,
+            created_at TEXT,
+            fetched_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON cached_invoices(tenant);
+        CREATE INDEX IF NOT EXISTS idx_invoices_status ON cached_invoices(status_label);
     """)
     conn.commit()
     conn.close()
@@ -357,6 +375,67 @@ def get_cached_payruns(
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def cache_invoices(invoices: List[Dict[str, Any]]):
+    """Cache invoices locally."""
+    conn = _get_conn()
+    now = _now()
+    for inv in invoices:
+        conn.execute("""
+            INSERT OR REPLACE INTO cached_invoices
+            (nvc_code, invoice_number, total_amount, currency, status, status_label,
+             paid_date, processing_date, in_flight_date, tenant, payrun_id, created_at, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            inv.get('nvc_code'), inv.get('invoice_number'), inv.get('total_amount'),
+            inv.get('currency', ''), inv.get('status'), inv.get('status_label', ''),
+            inv.get('paid_date', ''), inv.get('processing_date', ''),
+            inv.get('in_flight_date', ''), inv.get('tenant', ''),
+            inv.get('payrun_id', ''), inv.get('created_at', ''), now,
+        ))
+    conn.commit()
+    conn.close()
+
+
+def get_cached_invoices(
+    tenant: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = 'created_at',
+    sort_dir: str = 'desc',
+    limit: int = 200,
+    offset: int = 0,
+) -> tuple:
+    """Get cached invoices with filters. Returns (records, total_count)."""
+    conn = _get_conn()
+    conditions: list = []
+    params: list = []
+
+    if tenant:
+        conditions.append("tenant LIKE ?")
+        params.append(f"%{tenant}%")
+    if status:
+        conditions.append("status_label = ?")
+        params.append(status)
+    if search:
+        conditions.append("(nvc_code LIKE ? OR invoice_number LIKE ? OR tenant LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    total = conn.execute(f"SELECT COUNT(*) FROM cached_invoices {where}", params).fetchone()[0]
+
+    allowed_sorts = {'created_at', 'total_amount', 'tenant', 'nvc_code', 'status_label', 'fetched_at'}
+    sort_col = sort_by if sort_by in allowed_sorts else 'created_at'
+    direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+
+    rows = conn.execute(
+        f"SELECT * FROM cached_invoices {where} ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
 
 
 def _migrate_add_flag_columns():

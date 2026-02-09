@@ -5,9 +5,9 @@ import Header from "@/components/Header";
 import Tabs from "@/components/Tabs";
 import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
-import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord } from "@/lib/api";
+import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord, CachedInvoice } from "@/lib/api";
 
-const TAB_NAMES = ["Overview", "Workbench", "Funding Emails", "Pay Runs", "Funding", "Tenants"];
+const TAB_NAMES = ["Overview", "Workbench", "Remittances", "Invoices", "Pay Runs", "Funding", "Configuration"];
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -1140,8 +1140,7 @@ function EmailDetailModal({ email, onClose }: { email: EmailItem; onClose: () =>
 
 function PayRunsTab() {
   const [payruns, setPayruns] = useState<PayRun[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [days, setDays] = useState(30);
+  const [loading, setLoading] = useState(true);
   const [filterTenant, setFilterTenant] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterMinAmount, setFilterMinAmount] = useState("");
@@ -1152,11 +1151,11 @@ function PayRunsTab() {
   const loadPayruns = useCallback(() => {
     setLoading(true);
     setError("");
-    api.payruns(days)
+    api.cachedPayruns({ limit: 500 })
       .then((res) => setPayruns(res.payruns))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [days]);
+  }, []);
 
   const lookupNVC = useCallback(() => {
     if (!nvcInput.trim()) return;
@@ -1181,28 +1180,14 @@ function PayRunsTab() {
   const tenantOptions = [...new Set(payruns.map((p) => (p.tenant || "").replace(".worksuite.com", "")))].sort();
   const statusOptions = [...new Set(payruns.map((p) => String(p.status)))].sort();
 
+  useEffect(() => { loadPayruns(); }, [loadPayruns]);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-end gap-4 flex-wrap">
-        <div>
-          <label className="section-label block mb-2">Days Back</label>
-          <input
-            type="number"
-            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-24"
-            value={days}
-            min={7}
-            max={180}
-            onChange={(e) => setDays(Number(e.target.value))}
-          />
-        </div>
-        <button className="btn btn-black" onClick={loadPayruns} disabled={loading}>
-          {loading ? "Loading…" : "Load Pay Runs"}
-        </button>
-      </div>
-
       {error && <ErrorBox message={error} />}
+      {loading && <LoadingSkeleton rows={6} />}
 
-      {payruns.length > 0 && (
+      {!loading && payruns.length > 0 && (
         <>
           {/* Filters */}
           <div className="card bg-gray-50 border-gray-200">
@@ -1327,6 +1312,184 @@ function PayRunsTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── Invoices Tab (Cached) ────────────────────────────────────────────── */
+
+function InvoicesTab() {
+  const [invoices, setInvoices] = useState<CachedInvoice[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filterTenant, setFilterTenant] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortDir, setSortDir] = useState("desc");
+
+  const loadInvoices = useCallback(() => {
+    setLoading(true);
+    setError("");
+    api.cachedInvoices({
+      tenant: filterTenant || undefined,
+      status: filterStatus || undefined,
+      search: filterSearch || undefined,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      limit: 500,
+    })
+      .then((res) => { setInvoices(res.invoices); setTotal(res.total); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [filterTenant, filterStatus, filterSearch, sortBy, sortDir]);
+
+  useEffect(() => { loadInvoices(); }, [loadInvoices]);
+
+  // Compute summary stats
+  const totalValue = invoices.reduce((s, inv) => s + (inv.total_amount || 0), 0);
+  const statusCounts: Record<string, number> = {};
+  invoices.forEach((inv) => {
+    const sl = inv.status_label || "Unknown";
+    statusCounts[sl] = (statusCounts[sl] || 0) + 1;
+  });
+
+  // Unique tenants for filter
+  const tenantOptions = [...new Set(invoices.map((inv) => inv.tenant).filter(Boolean))].sort();
+
+  const statusBadge = (s: string) => {
+    if (s === "Paid") return "badge-green";
+    if (s === "Processing" || s === "In Flight") return "badge-orange";
+    if (s === "Rejected") return "bg-red-100 text-red-700";
+    return "badge-gray";
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Summary metrics */}
+      <div className="grid grid-cols-4 gap-4">
+        <MetricCard label="Total Invoices" value={total} />
+        <MetricCard label="Total Value" value={formatCurrencyFull(totalValue)} />
+        <MetricCard label="Paid" value={statusCounts["Paid"] || 0} />
+        <MetricCard label="Processing" value={(statusCounts["Processing"] || 0) + (statusCounts["In Flight"] || 0)} />
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-end gap-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label className="section-label block mb-2">Search</label>
+          <input
+            type="text"
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-full"
+            placeholder="NVC code, invoice number, tenant..."
+            value={filterSearch}
+            onChange={(e) => setFilterSearch(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="section-label block mb-2">Tenant</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={filterTenant}
+            onChange={(e) => setFilterTenant(e.target.value)}
+          >
+            <option value="">All Tenants</option>
+            {tenantOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="section-label block mb-2">Status</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            <option value="Processing">Processing</option>
+            <option value="In Flight">In Flight</option>
+            <option value="Approved">Approved</option>
+            <option value="Paid">Paid</option>
+            <option value="Draft">Draft</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <div>
+          <label className="section-label block mb-2">Sort</label>
+          <select
+            className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm"
+            value={`${sortBy}:${sortDir}`}
+            onChange={(e) => { const [b, d] = e.target.value.split(":"); setSortBy(b); setSortDir(d); }}
+          >
+            <option value="created_at:desc">Newest First</option>
+            <option value="created_at:asc">Oldest First</option>
+            <option value="total_amount:desc">Highest Amount</option>
+            <option value="total_amount:asc">Lowest Amount</option>
+            <option value="tenant:asc">Tenant A-Z</option>
+          </select>
+        </div>
+        {(filterTenant || filterStatus || filterSearch) && (
+          <button
+            className="text-sm text-[var(--color-ws-orange)] font-semibold hover:underline pb-2"
+            onClick={() => { setFilterTenant(""); setFilterStatus(""); setFilterSearch(""); }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400">
+        {invoices.length} of {total} invoices{filterTenant || filterStatus || filterSearch ? " (filtered)" : ""} · Synced from Worksuite every 5 minutes
+      </p>
+
+      {error && <ErrorBox message={error} />}
+      {loading && <LoadingSkeleton rows={8} />}
+
+      {!loading && invoices.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <table className="ws-table">
+            <thead>
+              <tr>
+                <th>NVC Code</th>
+                <th>Invoice #</th>
+                <th>Tenant</th>
+                <th>Status</th>
+                <th>Amount</th>
+                <th>Currency</th>
+                <th>Pay Run</th>
+                <th>Created</th>
+                <th>Paid Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.nvc_code}>
+                  <td className="font-mono text-sm font-medium">{inv.nvc_code}</td>
+                  <td className="text-sm text-gray-500">{inv.invoice_number || "—"}</td>
+                  <td className="text-sm">{inv.tenant}</td>
+                  <td>
+                    <span className={`badge ${statusBadge(inv.status_label)}`}>
+                      {inv.status_label || "Unknown"}
+                    </span>
+                  </td>
+                  <td className="text-sm font-medium">{formatCurrencyFull(inv.total_amount || 0)}</td>
+                  <td className="text-sm text-gray-400">{inv.currency || "USD"}</td>
+                  <td className="text-sm text-gray-500 font-mono">{inv.payrun_id || "—"}</td>
+                  <td className="text-sm text-gray-500 whitespace-nowrap">{(inv.created_at || "").slice(0, 16)}</td>
+                  <td className="text-sm text-gray-500 whitespace-nowrap">{inv.paid_date || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && invoices.length === 0 && !error && (
+        <div className="py-12 text-center">
+          <p className="text-lg font-semibold text-gray-400">No invoices found</p>
+          <p className="text-sm text-gray-300 mt-1">Data syncs from Worksuite every 5 minutes. Check the sync status in Configuration.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1548,24 +1711,31 @@ function HistoryTab() {
   );
 }
 
-/* ── Worksuite Tenants Tab ────────────────────────────────────────────── */
+/* ── Configuration Tab ────────────────────────────────────────────────── */
 
-function WorksuiteTenantsTab() {
+function ConfigurationTab() {
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
+  const [config, setConfig] = useState<ConfigData | null>(null);
+  const [syncState, setSyncState] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.tenants()
-      .then((res) => setTenants(res.tenants))
-      .catch((e) => setError(e.message))
+    Promise.all([
+      api.tenants().catch(() => ({ tenants: [], count: 0 })),
+      api.config().catch(() => null),
+      api.syncStatus().catch(() => ({ sources: [] })),
+    ]).then(([t, c, s]) => {
+      setTenants(t.tenants);
+      setConfig(c);
+      setSyncState(s.sources || []);
+    }).catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <LoadingSkeleton rows={6} />;
-  if (error) return <ErrorBox message={error} />;
 
-  // Group by group
+  // Group tenants
   const groups: Record<string, TenantInfo[]> = {};
   tenants.forEach((t) => {
     const g = t.group || "Other";
@@ -1574,33 +1744,139 @@ function WorksuiteTenantsTab() {
   });
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm text-gray-500">
-        Omnicom tenants configured in Worksuite with OMC invoices. Edit <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">config.json</code> to update.
-      </p>
+    <div className="space-y-8">
+      {error && <ErrorBox message={error} />}
 
-      <div className="grid grid-cols-3 gap-4">
-        <MetricCard label="Total Tenants" value={tenants.length} />
-        <MetricCard label="Groups" value={Object.keys(groups).length} />
-        <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "—"} />
+      {/* Sync Status */}
+      <div>
+        <p className="section-label mb-4">Sync Status</p>
+        <div className="card">
+          {syncState.length > 0 ? (
+            <div className="space-y-3">
+              {syncState.map((s: any) => (
+                <div key={s.source} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <StatusDot status={s.status === "ok" ? "ok" : "error"} />
+                    <span className="text-sm font-semibold capitalize">{s.source}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <span>{s.last_count || 0} records</span>
+                    <span>{s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "Never"}</span>
+                    <span className={`badge ${s.status === "ok" ? "badge-green" : "badge-orange"}`}>{s.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No sync data available. Background sync runs every 5 minutes.</p>
+          )}
+        </div>
       </div>
 
-      {Object.entries(groups).sort().map(([group, items]) => (
-        <div key={group}>
-          <p className="section-label mb-3">{group}</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {items.map((t) => (
-              <div key={t.domain} className="card card-hover">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-sm">{t.display_name}</span>
-                  <span className="badge badge-gray">{t.funding_method}</span>
+      {/* Tenants */}
+      <div>
+        <p className="section-label mb-4">Tenants ({tenants.length})</p>
+        <p className="text-sm text-gray-500 mb-4">
+          Omnicom tenants configured in Worksuite. Edit <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">config.json</code> to update groups and metadata.
+        </p>
+
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <MetricCard label="Total Tenants" value={tenants.length} />
+          <MetricCard label="Groups" value={Object.keys(groups).length} />
+          <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
+        </div>
+
+        {Object.entries(groups).sort().map(([group, items]) => (
+          <div key={group} className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{group}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {items.map((t) => (
+                <div key={t.domain} className="card card-hover">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-sm">{t.display_name}</span>
+                    <span className="badge badge-gray">{t.funding_method}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
                 </div>
-                <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Data Sources */}
+      {config && (
+        <div>
+          <p className="section-label mb-4">Email Sources</p>
+          <div className="card">
+            <div className="space-y-3">
+              {Object.entries(config.email_sources || {}).map(([key, query]) => (
+                <div key={key} className="flex items-start gap-3">
+                  <span className="badge badge-gray min-w-[80px] text-center">{key}</span>
+                  <code className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded break-all">{query}</code>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-[var(--color-ws-gray)]">
+              <p className="text-xs text-gray-400">Service account: {config.gmail_user}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MoneyCorp Accounts */}
+      <div>
+        <p className="section-label mb-4">MoneyCorp Account IDs</p>
+        <div className="card">
+          <p className="text-sm text-gray-500 mb-3">12 sub-accounts across OMC tenants. Account 859149 (Specialty Marketing) is inactive.</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {[
+              { id: "859133", tenant: "omcbbdo" },
+              { id: "859134", tenant: "omnicomddb" },
+              { id: "859135", tenant: "omnicomtbwa" },
+              { id: "859136", tenant: "omcflywheel" },
+              { id: "859137", tenant: "omnicommedia" },
+              { id: "859138", tenant: "omnicomprecision" },
+              { id: "859139", tenant: "omnicomoac" },
+              { id: "859140", tenant: "omnicombranding" },
+              { id: "859141", tenant: "omnicomprg" },
+              { id: "859142", tenant: "omcohg" },
+              { id: "859143", tenant: "Omnicom Production" },
+              { id: "859149", tenant: "Specialty Marketing" },
+            ].map((a) => (
+              <div key={a.id} className="flex items-center gap-2 text-sm">
+                <span className="font-mono text-xs text-gray-400">{a.id}</span>
+                <span className="text-gray-600">{a.tenant}</span>
               </div>
             ))}
           </div>
         </div>
-      ))}
+      </div>
+
+      {/* Naming Conventions */}
+      <div>
+        <p className="section-label mb-4">Key Conventions</p>
+        <div className="card">
+          <div className="space-y-3 text-sm">
+            <div className="flex items-start gap-3">
+              <span className="font-semibold min-w-[140px]">NVC Code</span>
+              <span className="text-gray-600">Universal join key across all 3 systems. Format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">NVC7Kxxxxxxx</code></span>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="font-semibold min-w-[140px]">MoneyCorp Ref</span>
+              <span className="text-gray-600">Payment reference format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">tenant.NVC_CODE</code> (e.g. omnicomtbwa.NVC7KVAR66CR)</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="font-semibold min-w-[140px]">Worksuite Field</span>
+              <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">documents_payment.invoice_id</code> = NVC code</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="font-semibold min-w-[140px]">OASYS CSV</span>
+              <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Inv Nbr</code> column = NVC code</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1780,9 +2056,10 @@ export default function Home() {
       {activeTab === 0 && <OverviewTab />}
       {activeTab === 1 && <QueueTab />}
       {activeTab === 2 && <FundingEmailsTab />}
-      {activeTab === 3 && <PayRunsTab />}
-      {activeTab === 4 && <MoneyCorpTab />}
-      {activeTab === 5 && <WorksuiteTenantsTab />}
+      {activeTab === 3 && <InvoicesTab />}
+      {activeTab === 4 && <PayRunsTab />}
+      {activeTab === 5 && <MoneyCorpTab />}
+      {activeTab === 6 && <ConfigurationTab />}
     </div>
   );
 }

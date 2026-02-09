@@ -49,7 +49,7 @@ export default function Header({ onSearch }: HeaderProps) {
             Worksuite
           </span>
           <div className="w-px h-6 bg-[var(--color-ws-gray)]" />
-          <span className="text-lg font-bold text-black">OMC Funding Tracker</span>
+          <span className="text-lg font-bold text-black">OMC Funding Manager</span>
         </div>
 
         <div className="flex items-center gap-4">

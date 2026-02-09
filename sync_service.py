@@ -5,7 +5,7 @@ from datetime import datetime
 
 from recon_db import (
     upsert_from_remittance, upsert_from_invoice, upsert_from_funding,
-    update_sync_state, cache_payruns,
+    update_sync_state, cache_payruns, cache_invoices,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,26 @@ def sync_invoices():
                 currency=p.get('currency', ''),
             )
             count += 1
+
+        # Cache raw invoices
+        try:
+            cache_invoices([{
+                'nvc_code': p.get('nvc_code'),
+                'invoice_number': p.get('invoice_number'),
+                'total_amount': float(p.get('total_amount') or 0),
+                'currency': p.get('currency', ''),
+                'status': p.get('status'),
+                'status_label': status_label(p.get('status')),
+                'paid_date': str(p.get('paid_date', '') or ''),
+                'processing_date': str(p.get('processing_date', '') or ''),
+                'in_flight_date': str(p.get('in_flight_date', '') or ''),
+                'tenant': p.get('tenant', '').replace('.worksuite.com', ''),
+                'payrun_id': str(p.get('payrun_id', '')),
+                'created_at': str(p.get('created_at', '')),
+            } for p in payments if p.get('nvc_code')])
+            logger.info("sync_invoices: cached %d invoices", len(payments))
+        except Exception as e:
+            logger.warning("sync_invoices: invoice cache failed: %s", e)
 
         # Also cache pay runs
         try:

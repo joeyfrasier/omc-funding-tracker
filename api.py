@@ -39,7 +39,7 @@ from email_db import (
 import recon_db
 from recon_db import (
     get_recon_records, get_recon_record, get_recon_summary,
-    get_sync_state, get_cached_payruns,
+    get_sync_state, get_cached_payruns, get_cached_invoices,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
@@ -858,6 +858,23 @@ def cached_payruns(
                               date_to=date_to, search=search, sort_by=sort_by,
                               sort_dir=sort_dir, limit=limit, offset=offset)
     return serialize({"count": len(runs), "payruns": runs})
+
+
+@app.get("/api/invoices/cached")
+def cached_invoices(
+    tenant: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """Get locally cached invoices."""
+    invoices, total = get_cached_invoices(tenant=tenant, status=status, search=search,
+                                          sort_by=sort_by, sort_dir=sort_dir,
+                                          limit=limit, offset=offset)
+    return serialize({"invoices": invoices, "total": total})
 
 
 # ── Cross-Search ─────────────────────────────────────────────────────────
