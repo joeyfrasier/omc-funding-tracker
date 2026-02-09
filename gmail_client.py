@@ -20,7 +20,7 @@ PROCESSED_FILE = Path('data/processed_emails.json')
 # Email source queries
 EMAIL_SOURCES = {
     'oasys': {
-        'query': 'omcoasys has:attachment',
+        'query': 'from:"OASYS Notification" has:attachment -subject:Re: -subject:RE:',
         'description': 'OASYS Notifications (Omnicom agencies)',
     },
     'd365_ach': {
