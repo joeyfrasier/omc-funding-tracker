@@ -1833,34 +1833,41 @@ function ConfigurationPanel({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-            {/* Happy Place / Platform Links */}
+            {/* Tenants & Platform Access */}
             <div>
-              <p className="section-label mb-4">Worksuite Platform Access</p>
+              <p className="section-label mb-4">Tenants ({tenants.length})</p>
               <p className="text-sm text-gray-500 mb-3">
-                Direct links into each tenant via Happy Place authentication. First click authenticates; subsequent clicks go straight through.
+                Omnicom tenants in Worksuite with direct Happy Place links. First click authenticates; subsequent clicks go straight through.
               </p>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <MetricCard label="Total Tenants" value={tenants.length} />
+                <MetricCard label="Groups" value={Object.keys(groups).length} />
+                <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
+              </div>
               <div className="card p-0 overflow-hidden">
                 <table className="ws-table text-xs">
                   <thead>
                     <tr>
                       <th>Tenant</th>
-                      <th>Environment</th>
+                      <th>Group</th>
+                      <th>Domain</th>
+                      <th>Env</th>
                       <th>Client ID</th>
-                      <th>Platform</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {HAPPYPLACE_TENANTS.map((t) => {
+                      const tenantInfo = tenants.find((ti) => ti.slug === t.slug);
                       const domain = `${t.platform}.${t.env}.platform.production.worksuite.tech`;
                       const authUrl = `https://happyplace.production.worksuite.tech/staff-redirect?environment=${t.env}&client=${t.clientId}&domain=${domain}`;
-                      const directUrl = `https://${domain}/payments/`;
                       return (
                         <tr key={t.slug}>
                           <td className="font-semibold">{t.name}</td>
+                          <td className="text-gray-500">{tenantInfo?.group?.replace("Omnicom ", "") || "—"}</td>
+                          <td className="font-mono text-gray-400">{tenantInfo?.domain || `${t.slug}.worksuite.com`}</td>
                           <td><span className="badge badge-gray">{t.env}</span></td>
                           <td className="font-mono text-gray-400">{t.clientId}</td>
-                          <td className="font-mono text-gray-400 max-w-[200px] truncate" title={domain}>{t.platform}</td>
                           <td className="text-right">
                             <a
                               href={authUrl}
@@ -1877,30 +1884,6 @@ function ConfigurationPanel({ onClose }: { onClose: () => void }) {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            {/* Tenants by Group */}
-            <div>
-              <p className="section-label mb-4">Tenants ({tenants.length})</p>
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <MetricCard label="Total Tenants" value={tenants.length} />
-                <MetricCard label="Groups" value={Object.keys(groups).length} />
-                <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
-              </div>
-
-              {Object.entries(groups).sort().map(([group, items]) => (
-                <div key={group} className="mb-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{group}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {items.map((t) => (
-                      <div key={t.domain} className="card card-hover py-2 px-3">
-                        <span className="font-semibold text-sm">{t.display_name}</span>
-                        <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
             </div>
 
             {/* Email Sources */}
