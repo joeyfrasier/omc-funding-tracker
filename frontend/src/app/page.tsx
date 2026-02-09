@@ -6,8 +6,31 @@ import Tabs from "@/components/Tabs";
 import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
 import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord, CachedInvoice } from "@/lib/api";
+import { getInvoiceUrl } from "@/lib/worksuite-links";
 
 const TAB_NAMES = ["Overview", "Workbench", "Remittances", "Invoices", "Pay Runs", "Funding", "Configuration"];
+
+/** Clickable NVC code that deep-links to Worksuite via Happy Place. */
+function NvcLink({ nvcCode, tenant, className = "" }: { nvcCode: string; tenant?: string | null; className?: string }) {
+  const url = tenant ? getInvoiceUrl(tenant, nvcCode) : null;
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`font-mono text-sm font-medium text-[var(--color-ws-orange)] hover:underline ${className}`}
+        title={`Open in Worksuite (${tenant})`}
+      >
+        {nvcCode}
+        <svg className="inline-block w-3 h-3 ml-1 -mt-0.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+      </a>
+    );
+  }
+  return <span className={`font-mono text-sm font-medium ${className}`}>{nvcCode}</span>;
+}
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -211,7 +234,7 @@ function QueueTab() {
                   className={`cursor-pointer ${selectedRecord?.nvc_code === r.nvc_code ? "bg-orange-50" : ""}`}
                   onClick={() => setSelectedRecord(r)}
                 >
-                  <td className="font-mono text-sm font-medium">{r.nvc_code}</td>
+                  <td><NvcLink nvcCode={r.nvc_code} tenant={r.invoice_tenant} /></td>
                   <td>
                     <span className={`text-xs font-semibold ${statusColor(r.match_status)}`}>
                       {statusLabel(r.match_status)}
@@ -368,7 +391,7 @@ function RecordDetailPanel({
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-[var(--color-ws-gray)] p-6 flex items-center justify-between z-10">
           <div>
-            <h2 className="text-lg font-bold font-mono">{record.nvc_code}</h2>
+            <h2 className="text-lg font-bold"><NvcLink nvcCode={record.nvc_code} tenant={record.invoice_tenant} /></h2>
             <p className={`text-sm font-semibold ${
               record.match_status === "full_3way" ? "text-[var(--color-ws-green)]" :
               record.match_status === "mismatch" ? "text-red-600" :
@@ -1109,7 +1132,7 @@ function EmailDetailModal({ email, onClose }: { email: EmailItem; onClose: () =>
                             <tbody>
                               {rem.matches.map((m: any, mi: number) => (
                                 <tr key={mi}>
-                                  <td className="font-mono">{m.nvc_code}</td>
+                                  <td><NvcLink nvcCode={m.nvc_code} tenant={m.tenant} /></td>
                                   <td className="max-w-[160px] truncate">{m.description || m.company || "—"}</td>
                                   <td>${(m.remittance_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                                   <td>{m.db_amount != null ? `$${m.db_amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—"}</td>
@@ -1464,7 +1487,7 @@ function InvoicesTab() {
             <tbody>
               {invoices.map((inv) => (
                 <tr key={inv.nvc_code}>
-                  <td className="font-mono text-sm font-medium">{inv.nvc_code}</td>
+                  <td><NvcLink nvcCode={inv.nvc_code} tenant={inv.tenant} /></td>
                   <td className="text-sm text-gray-500">{inv.invoice_number || "—"}</td>
                   <td className="text-sm">{inv.tenant}</td>
                   <td>

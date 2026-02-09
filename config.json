@@ -4,67 +4,100 @@
       "slug": "omcbbdo",
       "domain": "omcbbdo.worksuite.com",
       "display_name": "OMC BBDO",
-      "group": "Omnicom Advertising"
+      "group": "Omnicom Advertising",
+      "platform_slug": "omcbbdo",
+      "happyplace_client_id": 360,
+      "environment": "us-e-6"
     },
     {
       "slug": "omcflywheel",
       "domain": "omcflywheel.worksuite.com",
       "display_name": "OMC Flywheel",
-      "group": "Omnicom Media"
+      "group": "Omnicom Media",
+      "platform_slug": "omcflywheel",
+      "happyplace_client_id": 350,
+      "environment": "us-e-6"
     },
     {
       "slug": "omcohg",
       "domain": "omcohg.worksuite.com",
       "display_name": "OMC OHG",
-      "group": "Omnicom Health"
+      "group": "Omnicom Health",
+      "platform_slug": "omcohg",
+      "happyplace_client_id": 351,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicom",
       "domain": "omnicom.worksuite.com",
       "display_name": "Omnicom (Corporate)",
-      "group": "Omnicom Corporate"
+      "group": "Omnicom Corporate",
+      "platform_slug": "omnicom",
+      "happyplace_client_id": 325,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicombranding",
       "domain": "omnicombranding.worksuite.com",
       "display_name": "Omnicom Branding",
-      "group": "Omnicom Advertising"
+      "group": "Omnicom Advertising",
+      "platform_slug": "omnicombranding",
+      "happyplace_client_id": 357,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicomddb",
       "domain": "omnicomddb.worksuite.com",
       "display_name": "Omnicom DDB",
-      "group": "Omnicom Advertising"
+      "group": "Omnicom Advertising",
+      "platform_slug": "omnicomddb",
+      "happyplace_client_id": null,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicommedia",
       "domain": "omnicommedia.worksuite.com",
       "display_name": "Omnicom Media Group",
-      "group": "Omnicom Media"
+      "group": "Omnicom Media",
+      "platform_slug": "omnicommedia",
+      "happyplace_client_id": 354,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicomoac",
       "domain": "omnicomoac.worksuite.com",
       "display_name": "Omnicom OAC",
-      "group": "Omnicom Advertising"
+      "group": "Omnicom Advertising",
+      "platform_slug": "omnicomoac",
+      "happyplace_client_id": 356,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicomprecision",
       "domain": "omnicomprecision.worksuite.com",
       "display_name": "Omnicom Precision",
-      "group": "Omnicom Media"
+      "group": "Omnicom Media",
+      "platform_slug": "omnicomprecision",
+      "happyplace_client_id": 372,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicomprg",
       "domain": "omnicomprg.worksuite.com",
       "display_name": "Omnicom PRG",
-      "group": "Omnicom PR"
+      "group": "Omnicom PR",
+      "platform_slug": "omnicomprg",
+      "happyplace_client_id": 353,
+      "environment": "us-e-6"
     },
     {
       "slug": "omnicomtbwa",
       "domain": "omnicomtbwa.worksuite.com",
       "display_name": "Omnicom TBWA",
-      "group": "Omnicom Advertising"
+      "group": "Omnicom Advertising",
+      "platform_slug": "omnicomtbwa",
+      "happyplace_client_id": 365,
+      "environment": "us-e-6"
     }
   ],
   "email_sources": {
