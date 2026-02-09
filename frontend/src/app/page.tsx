@@ -411,8 +411,19 @@ function RecordDetailPanel({
             </div>
           )}
 
-          {/* Cross-Search */}
-          {record.match_status !== "full_3way" && (
+          {/* Mismatch guidance when all sources present but amounts differ */}
+          {hasRemittance && hasInvoice && hasFunding && record.match_status === "mismatch" && (
+            <div className="rounded-xl bg-amber-50 p-4 border border-amber-200">
+              <p className="text-xs font-semibold text-amber-700 mb-1">All 3 sources present — amounts don&apos;t match</p>
+              <p className="text-xs text-amber-600">
+                Verify the funding amount in MoneyCorp. The discrepancy may be due to FX conversion,
+                batch payment grouping, or a data mapping issue. Use &ldquo;Flag for Follow-up&rdquo; to track investigation.
+              </p>
+            </div>
+          )}
+
+          {/* Cross-Search — only show if actually missing a source */}
+          {(!hasRemittance || !hasInvoice || !hasFunding) && (
             <div>
               <p className="section-label mb-3">Find Missing Source</p>
               <div className="flex gap-2 mb-3">
