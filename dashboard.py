@@ -16,8 +16,8 @@ import streamlit as st
 
 # Configure page first
 st.set_page_config(
-    page_title="OMC Funding Tracker",
-    page_icon="💰",
+    page_title="OMC Funding Tracker — Worksuite",
+    page_icon="https://www.worksuite.com/favicon.ico",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -47,12 +47,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Header ───────────────────────────────────────────────────────────────
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.title("💰 OMC Funding Tracker")
-    st.caption("Omnicom Pay Run Funding — Remittance ↔ DB ↔ MoneyCorp reconciliation (READ-ONLY)")
-with col2:
-    st.markdown(f"**Last refresh:** {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.markdown("""
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&display=swap" rel="stylesheet">
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:0.5rem;">
+    <div style="display:flex;align-items:baseline;gap:14px;">
+        <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:1.8rem;color:white;letter-spacing:-0.02em;">Worksuite</span>
+        <span style="font-size:1.4rem;font-weight:500;color:#999;">OMC Funding Tracker</span>
+    </div>
+    <span style="color:#666;font-size:0.8rem;">Last refresh: {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
+</div>
+<p style="color:#555;font-size:0.82rem;margin-top:-8px;">Omnicom Pay Run Funding — Remittance ↔ DB ↔ MoneyCorp reconciliation <span style="color:#FF4821;font-weight:600;">READ-ONLY</span></p>
+""", unsafe_allow_html=True)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────
 tab_overview, tab_emails, tab_payruns, tab_reconcile, tab_history = st.tabs([
@@ -63,78 +71,120 @@ tab_overview, tab_emails, tab_payruns, tab_reconcile, tab_history = st.tabs([
 # TAB: Overview
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_overview:
-    st.subheader("System Status")
-    
-    # Quick connection checks
-    col_db, col_gmail, col_mc = st.columns(3)
-    
-    with col_db:
-        try:
-            payments = get_omc_payments(days_back=7)
-            st.metric("DB Payments (7d)", len(payments))
-            st.success("✅ Database connected")
-        except Exception as e:
-            st.metric("DB Payments (7d)", "—")
-            st.error(f"❌ DB error: {e}")
-            payments = []
-    
-    with col_gmail:
-        try:
-            processed = load_processed()
-            st.metric("Processed Emails", len(processed))
-            st.success("✅ Gmail connected")
-        except Exception as e:
-            st.metric("Processed Emails", "—")
-            st.error(f"❌ Gmail error: {e}")
-    
-    with col_mc:
-        st.metric("MoneyCorp", "Token Expired")
-        st.warning("⚠️ MoneyCorp token needs refresh")
-    
-    st.divider()
-    
-    # DB stats overview
-    if payments:
-        st.subheader("OMC Payment Summary (Last 7 Days)")
-        df = pd.DataFrame(payments)
-        df['status_name'] = df['status'].apply(status_label)
-        df['tenant_short'] = df['tenant'].str.replace('.worksuite.com', '', regex=False)
-        
-        # Summary metrics
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Payments", len(df))
-        c2.metric("Total Value", f"${df['total_amount'].sum():,.2f}")
-        c3.metric("Unique Tenants", df['tenant'].nunique())
-        c4.metric("Avg Payment", f"${df['total_amount'].mean():,.2f}")
-        
-        # Status breakdown
-        col_chart, col_table = st.columns([1, 1])
-        with col_chart:
-            status_counts = df['status_name'].value_counts()
-            st.bar_chart(status_counts, horizontal=True)
-        
-        with col_table:
-            tenant_summary = df.groupby('tenant_short').agg(
-                count=('total_amount', 'size'),
-                total=('total_amount', 'sum')
-            ).sort_values('total', ascending=False)
-            tenant_summary['total'] = tenant_summary['total'].apply(lambda x: f"${x:,.2f}")
-            st.dataframe(tenant_summary, use_container_width=True)
-    
-    # SQLite stats
+    # ── Load data upfront ─────────────────────────────────────────────────
     try:
-        stats = get_stats()
-        if stats['total_emails'] > 0:
-            st.divider()
-            st.subheader("Reconciliation Database")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Emails Stored", stats['total_emails'])
-            c2.metric("Remittances", stats['total_remittances'])
-            c3.metric("Matched", stats['matched'])
-            c4.metric("Mismatched", stats['mismatched'])
-            c5.metric("Not Found", stats['not_found'])
+        payments = get_omc_payments(days_back=7)
+    except Exception as e:
+        payments = []
+        db_error = str(e)
+    else:
+        db_error = None
+    
+    try:
+        processed = load_processed()
+        gmail_error = None
+    except Exception as e:
+        processed = []
+        gmail_error = str(e)
+    
+    try:
+        recon_stats = get_stats()
     except Exception:
-        pass
+        recon_stats = {'total_emails': 0, 'total_remittances': 0, 'matched': 0, 'mismatched': 0, 'not_found': 0, 'total_value': 0}
+    
+    # ── Hero metrics: The numbers that matter ─────────────────────────────
+    st.markdown("#### Reconciliation Health")
+    
+    total_issues = recon_stats['mismatched'] + recon_stats['not_found']
+    total_lines = recon_stats['matched'] + total_issues
+    match_rate = (recon_stats['matched'] / total_lines * 100) if total_lines > 0 else 0
+    
+    hero1, hero2, hero3, hero4 = st.columns(4)
+    hero1.metric("Match Rate", f"{match_rate:.1f}%", delta=None)
+    hero2.metric("Matched", recon_stats['matched'], delta=None)
+    hero3.metric("Issues", total_issues, delta=f"{recon_stats['mismatched']} mismatch, {recon_stats['not_found']} missing" if total_issues else None, delta_color="inverse")
+    hero4.metric("Total Value", f"${recon_stats.get('total_value', 0):,.0f}")
+    
+    # ── Two-column layout: Agencies left, Activity right ──────────────────
+    st.markdown("---")
+    
+    col_agencies, col_activity = st.columns([3, 2])
+    
+    # ── LEFT: Agency breakdown ────────────────────────────────────────────
+    with col_agencies:
+        st.markdown("#### By Agency")
+        
+        if payments:
+            df = pd.DataFrame(payments)
+            df['status_name'] = df['status'].apply(status_label)
+            df['tenant_short'] = df['tenant'].str.replace('.worksuite.com', '', regex=False)
+            
+            # Build agency summary with status indicators
+            agency_summary = df.groupby('tenant_short').agg(
+                payments=('total_amount', 'size'),
+                total=('total_amount', 'sum'),
+            ).sort_values('total', ascending=False).reset_index()
+            
+            # Display as compact cards
+            for _, row in agency_summary.head(8).iterrows():
+                with st.container():
+                    ac1, ac2, ac3 = st.columns([2, 1, 1])
+                    ac1.markdown(f"**{row['tenant_short']}**")
+                    ac2.markdown(f"{row['payments']} payments")
+                    ac3.markdown(f"${row['total']:,.0f}")
+            
+            if len(agency_summary) > 8:
+                st.caption(f"+{len(agency_summary) - 8} more agencies")
+        else:
+            st.info("No payment data available")
+    
+    # ── RIGHT: System status + quick actions ──────────────────────────────
+    with col_activity:
+        st.markdown("#### System Status")
+        
+        # Connection status as compact indicators
+        status_items = []
+        
+        if db_error:
+            st.error(f"Database: {db_error[:50]}")
+        else:
+            st.success(f"Database: {len(payments)} payments (7d)")
+        
+        if gmail_error:
+            st.error(f"Gmail: {gmail_error[:50]}")
+        else:
+            st.success(f"Gmail: {len(processed)} processed")
+        
+        st.warning("MoneyCorp: Token needs refresh")
+        
+        st.markdown("---")
+        st.markdown("#### Quick Stats")
+        qs1, qs2 = st.columns(2)
+        qs1.metric("Emails Processed", recon_stats['total_emails'])
+        qs2.metric("Remittances", recon_stats['total_remittances'])
+    
+    # ── Expandable: Detailed payment breakdown ────────────────────────────
+    if payments:
+        with st.expander("View detailed payment breakdown", expanded=False):
+            df = pd.DataFrame(payments)
+            df['status_name'] = df['status'].apply(status_label)
+            df['tenant_short'] = df['tenant'].str.replace('.worksuite.com', '', regex=False)
+            
+            detail1, detail2 = st.columns(2)
+            
+            with detail1:
+                st.markdown("**Payment Status Distribution**")
+                status_counts = df['status_name'].value_counts()
+                st.bar_chart(status_counts, horizontal=True)
+            
+            with detail2:
+                st.markdown("**Full Agency Table**")
+                tenant_summary = df.groupby('tenant_short').agg(
+                    count=('total_amount', 'size'),
+                    total=('total_amount', 'sum')
+                ).sort_values('total', ascending=False)
+                tenant_summary['total'] = tenant_summary['total'].apply(lambda x: f"${x:,.2f}")
+                st.dataframe(tenant_summary, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB: Funding Emails
