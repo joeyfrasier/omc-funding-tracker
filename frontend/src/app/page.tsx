@@ -8,7 +8,7 @@ import StatusDot from "@/components/StatusDot";
 import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord, CachedInvoice } from "@/lib/api";
 import { getInvoiceUrl } from "@/lib/worksuite-links";
 
-const TAB_NAMES = ["Overview", "Workbench", "Remittances", "Invoices", "Pay Runs", "Funding", "Configuration"];
+const TAB_NAMES = ["Overview", "Workbench", "Remittances", "Invoices", "Pay Runs", "Funding"];
 
 /** Clickable NVC code that deep-links to Worksuite via Happy Place. */
 function NvcLink({ nvcCode, tenant, className = "" }: { nvcCode: string; tenant?: string | null; className?: string }) {
@@ -1734,9 +1734,23 @@ function HistoryTab() {
   );
 }
 
-/* ── Configuration Tab ────────────────────────────────────────────────── */
+/* ── Configuration Panel (Settings Overlay) ──────────────────────────── */
 
-function ConfigurationTab() {
+const HAPPYPLACE_TENANTS = [
+  { slug: "omcbbdo",           platform: "omcbbdo",           env: "us-e-6", clientId: 360, name: "OMC BBDO" },
+  { slug: "omcflywheel",      platform: "omcflywheel",       env: "us-e-6", clientId: 350, name: "OMC Flywheel" },
+  { slug: "omcohg",           platform: "omcohg",            env: "us-e-6", clientId: 351, name: "OMC OHG" },
+  { slug: "omnicom",          platform: "omnicom",           env: "us-e-6", clientId: 325, name: "Omnicom (Corporate)" },
+  { slug: "omnicombranding",  platform: "omnicombranding",   env: "us-e-6", clientId: 357, name: "Omnicom Branding" },
+  { slug: "omnicomddb",       platform: "omnicomddb",        env: "us-e-5", clientId: 212, name: "Omnicom DDB" },
+  { slug: "omnicommedia",     platform: "omnicommedia",      env: "us-e-6", clientId: 354, name: "Omnicom Media" },
+  { slug: "omnicomoac",       platform: "omnicomoac",        env: "us-e-6", clientId: 356, name: "Omnicom OAC" },
+  { slug: "omnicomprecision", platform: "omnicomprecision",  env: "us-e-6", clientId: 372, name: "Omnicom Precision" },
+  { slug: "omnicomprg",       platform: "omnicomprg",        env: "us-e-6", clientId: 353, name: "Omnicom PRG" },
+  { slug: "omnicomtbwa",      platform: "omnicomtbwa",       env: "us-e-6", clientId: 365, name: "Omnicom TBWA" },
+];
+
+function ConfigurationPanel({ onClose }: { onClose: () => void }) {
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [syncState, setSyncState] = useState<any[]>([]);
@@ -1756,7 +1770,11 @@ function ConfigurationTab() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <LoadingSkeleton rows={6} />;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   // Group tenants
   const groups: Record<string, TenantInfo[]> = {};
@@ -1767,138 +1785,199 @@ function ConfigurationTab() {
   });
 
   return (
-    <div className="space-y-8">
-      {error && <ErrorBox message={error} />}
-
-      {/* Sync Status */}
-      <div>
-        <p className="section-label mb-4">Sync Status</p>
-        <div className="card">
-          {syncState.length > 0 ? (
-            <div className="space-y-3">
-              {syncState.map((s: any) => (
-                <div key={s.source} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <StatusDot status={s.status === "ok" ? "ok" : "error"} />
-                    <span className="text-sm font-semibold capitalize">{s.source}</span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span>{s.last_count || 0} records</span>
-                    <span>{s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "Never"}</span>
-                    <span className={`badge ${s.status === "ok" ? "badge-green" : "badge-orange"}`}>{s.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">No sync data available. Background sync runs every 5 minutes.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Tenants */}
-      <div>
-        <p className="section-label mb-4">Tenants ({tenants.length})</p>
-        <p className="text-sm text-gray-500 mb-4">
-          Omnicom tenants configured in Worksuite. Edit <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">config.json</code> to update groups and metadata.
-        </p>
-
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <MetricCard label="Total Tenants" value={tenants.length} />
-          <MetricCard label="Groups" value={Object.keys(groups).length} />
-          <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
+    <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={onClose}>
+      <div
+        className="bg-white w-full max-w-2xl h-full overflow-auto shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-[var(--color-ws-gray)] p-6 flex items-center justify-between z-10">
+          <h2 className="text-lg font-bold">Configuration</h2>
+          <button
+            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
+            onClick={onClose}
+          >
+            ✕
+          </button>
         </div>
 
-        {Object.entries(groups).sort().map(([group, items]) => (
-          <div key={group} className="mb-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{group}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {items.map((t) => (
-                <div key={t.domain} className="card card-hover">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold text-sm">{t.display_name}</span>
-                    <span className="badge badge-gray">{t.funding_method}</span>
+        {loading ? (
+          <div className="p-6"><LoadingSkeleton rows={6} /></div>
+        ) : (
+          <div className="p-6 space-y-8">
+            {error && <ErrorBox message={error} />}
+
+            {/* Sync Status */}
+            <div>
+              <p className="section-label mb-4">Sync Status</p>
+              <div className="card">
+                {syncState.length > 0 ? (
+                  <div className="space-y-3">
+                    {syncState.map((s: any) => (
+                      <div key={s.source} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <StatusDot status={s.status === "ok" ? "ok" : "error"} />
+                          <span className="text-sm font-semibold capitalize">{s.source}</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span>{s.last_count || 0} records</span>
+                          <span>{s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "Never"}</span>
+                          <span className={`badge ${s.status === "ok" ? "badge-green" : "badge-orange"}`}>{s.status}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Data Sources */}
-      {config && (
-        <div>
-          <p className="section-label mb-4">Email Sources</p>
-          <div className="card">
-            <div className="space-y-3">
-              {Object.entries(config.email_sources || {}).map(([key, query]) => (
-                <div key={key} className="flex items-start gap-3">
-                  <span className="badge badge-gray min-w-[80px] text-center">{key}</span>
-                  <code className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded break-all">{query}</code>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 pt-3 border-t border-[var(--color-ws-gray)]">
-              <p className="text-xs text-gray-400">Service account: {config.gmail_user}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MoneyCorp Accounts */}
-      <div>
-        <p className="section-label mb-4">MoneyCorp Account IDs</p>
-        <div className="card">
-          <p className="text-sm text-gray-500 mb-3">12 sub-accounts across OMC tenants. Account 859149 (Specialty Marketing) is inactive.</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            {[
-              { id: "859133", tenant: "omcbbdo" },
-              { id: "859134", tenant: "omnicomddb" },
-              { id: "859135", tenant: "omnicomtbwa" },
-              { id: "859136", tenant: "omcflywheel" },
-              { id: "859137", tenant: "omnicommedia" },
-              { id: "859138", tenant: "omnicomprecision" },
-              { id: "859139", tenant: "omnicomoac" },
-              { id: "859140", tenant: "omnicombranding" },
-              { id: "859141", tenant: "omnicomprg" },
-              { id: "859142", tenant: "omcohg" },
-              { id: "859143", tenant: "Omnicom Production" },
-              { id: "859149", tenant: "Specialty Marketing" },
-            ].map((a) => (
-              <div key={a.id} className="flex items-center gap-2 text-sm">
-                <span className="font-mono text-xs text-gray-400">{a.id}</span>
-                <span className="text-gray-600">{a.tenant}</span>
+                ) : (
+                  <p className="text-sm text-gray-400">No sync data available. Background sync runs every 5 minutes.</p>
+                )}
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+            </div>
 
-      {/* Naming Conventions */}
-      <div>
-        <p className="section-label mb-4">Key Conventions</p>
-        <div className="card">
-          <div className="space-y-3 text-sm">
-            <div className="flex items-start gap-3">
-              <span className="font-semibold min-w-[140px]">NVC Code</span>
-              <span className="text-gray-600">Universal join key across all 3 systems. Format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">NVC7Kxxxxxxx</code></span>
+            {/* Happy Place / Platform Links */}
+            <div>
+              <p className="section-label mb-4">Worksuite Platform Access</p>
+              <p className="text-sm text-gray-500 mb-3">
+                Direct links into each tenant via Happy Place authentication. First click authenticates; subsequent clicks go straight through.
+              </p>
+              <div className="card p-0 overflow-hidden">
+                <table className="ws-table text-xs">
+                  <thead>
+                    <tr>
+                      <th>Tenant</th>
+                      <th>Environment</th>
+                      <th>Client ID</th>
+                      <th>Platform</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {HAPPYPLACE_TENANTS.map((t) => {
+                      const domain = `${t.platform}.${t.env}.platform.production.worksuite.tech`;
+                      const authUrl = `https://happyplace.production.worksuite.tech/staff-redirect?environment=${t.env}&client=${t.clientId}&domain=${domain}`;
+                      const directUrl = `https://${domain}/payments/`;
+                      return (
+                        <tr key={t.slug}>
+                          <td className="font-semibold">{t.name}</td>
+                          <td><span className="badge badge-gray">{t.env}</span></td>
+                          <td className="font-mono text-gray-400">{t.clientId}</td>
+                          <td className="font-mono text-gray-400 max-w-[200px] truncate" title={domain}>{t.platform}</td>
+                          <td className="text-right">
+                            <a
+                              href={authUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[var(--color-ws-orange)] hover:underline font-semibold"
+                            >
+                              Open
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="flex items-start gap-3">
-              <span className="font-semibold min-w-[140px]">MoneyCorp Ref</span>
-              <span className="text-gray-600">Payment reference format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">tenant.NVC_CODE</code> (e.g. omnicomtbwa.NVC7KVAR66CR)</span>
+
+            {/* Tenants by Group */}
+            <div>
+              <p className="section-label mb-4">Tenants ({tenants.length})</p>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <MetricCard label="Total Tenants" value={tenants.length} />
+                <MetricCard label="Groups" value={Object.keys(groups).length} />
+                <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
+              </div>
+
+              {Object.entries(groups).sort().map(([group, items]) => (
+                <div key={group} className="mb-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">{group}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {items.map((t) => (
+                      <div key={t.domain} className="card card-hover py-2 px-3">
+                        <span className="font-semibold text-sm">{t.display_name}</span>
+                        <p className="text-xs text-gray-400 font-mono">{t.domain}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-start gap-3">
-              <span className="font-semibold min-w-[140px]">Worksuite Field</span>
-              <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">documents_payment.invoice_id</code> = NVC code</span>
+
+            {/* Email Sources */}
+            {config && (
+              <div>
+                <p className="section-label mb-4">Email Sources</p>
+                <div className="card">
+                  <div className="space-y-3">
+                    {Object.entries(config.email_sources || {}).map(([key, query]) => (
+                      <div key={key} className="flex items-start gap-3">
+                        <span className="badge badge-gray min-w-[80px] text-center">{key}</span>
+                        <code className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded break-all">{query}</code>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-[var(--color-ws-gray)]">
+                    <p className="text-xs text-gray-400">Service account: {config.gmail_user}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MoneyCorp Accounts */}
+            <div>
+              <p className="section-label mb-4">MoneyCorp Account IDs</p>
+              <div className="card">
+                <p className="text-sm text-gray-500 mb-3">12 sub-accounts across OMC tenants. Account 859149 (Specialty Marketing) is inactive.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: "859133", tenant: "omcbbdo" },
+                    { id: "859134", tenant: "omnicomddb" },
+                    { id: "859135", tenant: "omnicomtbwa" },
+                    { id: "859136", tenant: "omcflywheel" },
+                    { id: "859137", tenant: "omnicommedia" },
+                    { id: "859138", tenant: "omnicomprecision" },
+                    { id: "859139", tenant: "omnicomoac" },
+                    { id: "859140", tenant: "omnicombranding" },
+                    { id: "859141", tenant: "omnicomprg" },
+                    { id: "859142", tenant: "omcohg" },
+                    { id: "859143", tenant: "Omnicom Production" },
+                    { id: "859149", tenant: "Specialty Marketing" },
+                  ].map((a) => (
+                    <div key={a.id} className="flex items-center gap-2 text-sm">
+                      <span className="font-mono text-xs text-gray-400">{a.id}</span>
+                      <span className="text-gray-600">{a.tenant}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="flex items-start gap-3">
-              <span className="font-semibold min-w-[140px]">OASYS CSV</span>
-              <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Inv Nbr</code> column = NVC code</span>
+
+            {/* Naming Conventions */}
+            <div>
+              <p className="section-label mb-4">Key Conventions</p>
+              <div className="card">
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold min-w-[140px]">NVC Code</span>
+                    <span className="text-gray-600">Universal join key across all 3 systems. Format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">NVC7Kxxxxxxx</code></span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold min-w-[140px]">MoneyCorp Ref</span>
+                    <span className="text-gray-600">Payment reference format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">tenant.NVC_CODE</code> (e.g. omnicomtbwa.NVC7KVAR66CR)</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold min-w-[140px]">Worksuite Field</span>
+                    <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">documents_payment.invoice_id</code> = NVC code</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="font-semibold min-w-[140px]">OASYS CSV</span>
+                    <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Inv Nbr</code> column = NVC code</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -2050,19 +2129,18 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    // If it looks like NVC codes, do a lookup
     if (query.toUpperCase().startsWith("NVC") || query.includes(",")) {
       setSearchLoading(true);
-      setActiveTab(-1); // Show search results
+      setActiveTab(-1);
       api.lookupNVC(query)
         .then(setSearchResults)
         .catch(() => setSearchResults(null))
         .finally(() => setSearchLoading(false));
     } else {
-      // Generic search — switch to appropriate tab
       setActiveTab(-1);
       setSearchResults({ type: "text", query });
     }
@@ -2070,7 +2148,7 @@ export default function Home() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-6">
-      <Header onSearch={handleSearch} />
+      <Header onSearch={handleSearch} onOpenSettings={() => setShowSettings(true)} />
       <Tabs tabs={TAB_NAMES} active={activeTab} onChange={(i) => { setActiveTab(i); setSearchQuery(""); setSearchResults(null); }} />
 
       {activeTab === -1 && searchQuery && (
@@ -2082,7 +2160,8 @@ export default function Home() {
       {activeTab === 3 && <InvoicesTab />}
       {activeTab === 4 && <PayRunsTab />}
       {activeTab === 5 && <MoneyCorpTab />}
-      {activeTab === 6 && <ConfigurationTab />}
+
+      {showSettings && <ConfigurationPanel onClose={() => setShowSettings(false)} />}
     </div>
   );
 }
