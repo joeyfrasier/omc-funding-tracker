@@ -31,6 +31,10 @@ EMAIL_SOURCES = {
         'query': 'from:"LDN GSS" subject:Remittance',
         'description': 'LDN GSS Payments (image-only, manual review)',
     },
+    'flywheel': {
+        'query': 'to:paymentops+flywheelfunding@worksuite.com has:attachment',
+        'description': 'Flywheel Agency Funding Requests',
+    },
 }
 
 
@@ -140,7 +144,7 @@ def mark_processed(message_ids):
 def fetch_all_remittances(max_per_source=100):
     """Fetch from all sources, return combined list."""
     all_emails = []
-    for key in ['oasys', 'd365_ach']:
+    for key in ['oasys', 'd365_ach', 'flywheel']:
         try:
             logger.info("Fetching emails from source: %s (max %d)", key, max_per_source)
             emails = fetch_emails(key, max_results=max_per_source)
