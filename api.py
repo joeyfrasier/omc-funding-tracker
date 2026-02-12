@@ -176,10 +176,13 @@ def overview(days: int = Query(7, ge=1, le=365)):
     # Use new recon DB if populated, fall back to legacy stats
     recon_total = recon_summary_data.get('total', 0)
     if recon_total > 0:
-        three_way_matched = recon_summary_data.get('full_3way', 0)
-        two_way_matched = recon_summary_data.get('partial_2way', 0) + three_way_matched
+        three_way_matched = recon_summary_data.get('full_4way', 0)
+        two_way_matched = (recon_summary_data.get('2way_matched', 0) +
+                           recon_summary_data.get('3way_awaiting_payment', 0) +
+                           recon_summary_data.get('3way_no_funding', 0) +
+                           three_way_matched)
         total_to_verify = recon_total
-        mismatched_count = recon_summary_data.get('mismatch', 0)
+        mismatched_count = recon_summary_data.get('amount_mismatch', 0)
     else:
         two_way_matched = recon_stats["matched"]
         three_way_matched = 0
@@ -199,9 +202,9 @@ def overview(days: int = Query(7, ge=1, le=365)):
         rows = rconn.execute("""
             SELECT invoice_tenant,
                    COUNT(*) as total_records,
-                   SUM(CASE WHEN match_status IN ('full_3way', 'partial_2way') THEN 1 ELSE 0 END) as reconciled,
-                   SUM(CASE WHEN match_status = 'full_3way' THEN 1 ELSE 0 END) as full_3way,
-                   SUM(CASE WHEN match_status IN ('mismatch', 'invoice_only', 'remittance_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
+                   SUM(CASE WHEN match_status IN ('full_4way', '3way_awaiting_payment', '3way_no_funding', '2way_matched') THEN 1 ELSE 0 END) as reconciled,
+                   SUM(CASE WHEN match_status = 'full_4way' THEN 1 ELSE 0 END) as full_4way,
+                   SUM(CASE WHEN match_status IN ('amount_mismatch', 'invoice_only', 'remittance_only', 'payment_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
                    SUM(COALESCE(invoice_amount, 0)) as total_value
             FROM reconciliation_records
             WHERE invoice_tenant IS NOT NULL AND invoice_tenant != ''
@@ -214,7 +217,7 @@ def overview(days: int = Query(7, ge=1, le=365)):
             "count": r['total_records'],
             "total": r['total_value'],
             "reconciled_count": r['reconciled'],
-            "full_3way_count": r['full_3way'],
+            "full_4way_count": r['full_4way'],
             "unreconciled_count": r['unreconciled'],
         } for r in rows]
     except Exception:
@@ -250,7 +253,7 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "errors": errors,
         "services": services,
         "sync": {s['source']: s['status'] for s in get_sync_state()},
-        "funding_count": recon_summary_data.get('partial_2way', 0) + recon_summary_data.get('full_3way', 0),
+        "funding_count": recon_summary_data.get('3way_awaiting_payment', 0) + recon_summary_data.get('full_4way', 0),
     })
 
 
@@ -630,13 +633,16 @@ def recon_queue(
     # Priority ordering: mismatch first, then partial, then single-source
     order = f"""
         CASE match_status
-            WHEN 'mismatch' THEN 1
+            WHEN 'amount_mismatch' THEN 1
             WHEN 'remittance_only' THEN 2
             WHEN 'invoice_only' THEN 3
-            WHEN 'unmatched' THEN 4
-            WHEN 'partial_2way' THEN 5
-            WHEN 'full_3way' THEN 6
-            WHEN 'resolved' THEN 7
+            WHEN 'payment_only' THEN 4
+            WHEN 'invoice_payment_only' THEN 5
+            WHEN '2way_matched' THEN 6
+            WHEN '3way_no_funding' THEN 7
+            WHEN '3way_awaiting_payment' THEN 8
+            WHEN 'full_4way' THEN 9
+            WHEN 'resolved' THEN 10
         END, {sort_col} {direction}
     """
 
