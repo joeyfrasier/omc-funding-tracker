@@ -5,10 +5,10 @@ import Header from "@/components/Header";
 import Tabs from "@/components/Tabs";
 import MetricCard from "@/components/MetricCard";
 import StatusDot from "@/components/StatusDot";
-import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord, CachedInvoice } from "@/lib/api";
+import { api, OverviewData, EmailItem, PayRun, ReconcileResult, ProcessedEmail, StatsData, ConfigData, TenantInfo, MoneyCorpAccount, ReconRecord, CachedInvoice, ReceivedPayment } from "@/lib/api";
 import { getInvoiceUrl } from "@/lib/worksuite-links";
 
-const TAB_NAMES = ["Overview", "Workbench", "Remittances", "Invoices", "Pay Runs", "Funding"];
+const TAB_NAMES = ["Overview", "Workbench", "Invoices", "Remittances", "Payments", "Funding", "Pay Runs"];
 
 /** Clickable NVC code that deep-links to Worksuite via Happy Place. */
 function NvcLink({ nvcCode, tenant, className = "" }: { nvcCode: string; tenant?: string | null; className?: string }) {
@@ -85,28 +85,35 @@ function QueueTab() {
 
   const statusLabel = (s: string) => {
     const map: Record<string, string> = {
-      mismatch: "Amount Mismatch",
-      invoice_only: "Missing Remittance",
-      remittance_only: "Missing Invoice",
-      unmatched: "Funding Only",
-      partial_2way: "Partial (2-way)",
-      full_3way: "Fully Reconciled",
+      full_4way: "Full 4-Way ✅",
+      "3way_awaiting_payment": "Awaiting Payment",
+      "3way_no_funding": "No Funding Record",
+      "2way_matched": "2-Way Matched",
+      amount_mismatch: "Amount Mismatch",
+      invoice_payment_only: "Missing Remittance",
+      invoice_only: "Invoice Only",
+      remittance_only: "Remittance Only",
+      payment_only: "Payment Only",
+      unmatched: "Unmatched",
       resolved: "Resolved",
     };
     return map[s] || s;
   };
 
   const statusColor = (s: string) => {
-    if (s === "full_3way" || s === "resolved") return "text-[var(--color-ws-green)]";
-    if (s === "mismatch") return "text-red-600";
-    if (s === "partial_2way") return "text-blue-600";
+    if (s === "full_4way" || s === "resolved") return "text-[var(--color-ws-green)]";
+    if (s === "amount_mismatch") return "text-red-600";
+    if (s === "3way_awaiting_payment") return "text-blue-600";
+    if (s === "3way_no_funding") return "text-amber-600";
+    if (s === "2way_matched") return "text-yellow-600";
     return "text-[var(--color-ws-orange)]";
   };
 
-  const hasLeg = (r: ReconRecord, leg: "remittance" | "invoice" | "funding") => {
+  const hasLeg = (r: ReconRecord, leg: "remittance" | "invoice" | "funding" | "payment") => {
     if (leg === "remittance") return r.remittance_amount !== null;
     if (leg === "invoice") return r.invoice_amount !== null;
-    return r.funding_amount !== null;
+    if (leg === "funding") return r.received_payment_id !== null;
+    return r.payment_amount !== null;
   };
 
   const formatAmt = (n: number | null) =>
@@ -114,11 +121,13 @@ function QueueTab() {
 
   // Summary pills
   const pills = [
-    { key: "mismatch", label: "Mismatch", count: summary.mismatch || 0, color: "bg-red-100 text-red-700" },
-    { key: "invoice_only", label: "Missing Remittance", count: summary.invoice_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
-    { key: "remittance_only", label: "Missing Invoice", count: summary.remittance_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
-    { key: "unmatched", label: "Funding Only", count: summary.unmatched || 0, color: "bg-gray-100 text-gray-600" },
-    { key: "partial_2way", label: "Partial 2-way", count: summary.partial_2way || 0, color: "bg-blue-100 text-blue-700" },
+    { key: "amount_mismatch", label: "Mismatch", count: summary.amount_mismatch || 0, color: "bg-red-100 text-red-700" },
+    { key: "3way_no_funding", label: "No Funding", count: summary["3way_no_funding"] || 0, color: "bg-amber-100 text-amber-700" },
+    { key: "3way_awaiting_payment", label: "Awaiting Pay", count: summary["3way_awaiting_payment"] || 0, color: "bg-blue-100 text-blue-700" },
+    { key: "2way_matched", label: "2-Way", count: summary["2way_matched"] || 0, color: "bg-yellow-100 text-yellow-700" },
+    { key: "invoice_only", label: "Invoice Only", count: summary.invoice_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
+    { key: "invoice_payment_only", label: "No Remittance", count: summary.invoice_payment_only || 0, color: "bg-orange-100 text-[var(--color-ws-orange)]" },
+    { key: "full_4way", label: "Full 4-Way", count: summary.full_4way || 0, color: "bg-green-100 text-[var(--color-ws-green)]" },
     { key: "", label: "All", count: summary.total || 0, color: "bg-gray-100 text-gray-700" },
   ];
 
@@ -244,7 +253,8 @@ function QueueTab() {
                     <div className="flex gap-1">
                       <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "remittance") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Remittance" />
                       <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "invoice") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Invoice" />
-                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "funding") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Funding" />
+                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "funding") ? "bg-blue-500" : "bg-gray-300"}`} title="Funding (incoming)" />
+                      <span className={`inline-block w-2 h-2 rounded-full ${hasLeg(r, "payment") ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} title="Payment (outgoing)" />
                     </div>
                   </td>
                   <td className="text-sm text-gray-500">{r.invoice_tenant || "—"}</td>
@@ -258,7 +268,7 @@ function QueueTab() {
                       }`}>{r.invoice_status}</span>
                     ) : <span className="text-xs text-gray-300">—</span>}
                   </td>
-                  <td className="text-sm font-medium">{formatAmt(r.invoice_amount || r.remittance_amount || r.funding_amount)}</td>
+                  <td className="text-sm font-medium">{formatAmt(r.invoice_amount || r.remittance_amount || r.payment_amount)}</td>
                   <td>
                     {r.flag ? (
                       <span
@@ -323,7 +333,7 @@ function RecordDetailPanel({
   onUpdate: (r: ReconRecord) => void;
 }) {
   const [searchSource, setSearchSource] = useState<"invoices" | "funding" | "emails">(
-    !record.invoice_amount ? "invoices" : !record.funding_amount ? "funding" : "emails"
+    !record.invoice_amount ? "invoices" : !record.payment_amount ? "funding" : "emails"
   );
   const [searchQuery, setSearchQuery] = useState(record.nvc_code);
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -336,8 +346,8 @@ function RecordDetailPanel({
     api.crossSearch({
       q: searchQuery,
       source: searchSource,
-      amount_min: (record.invoice_amount || record.remittance_amount || record.funding_amount || 0) * 0.95,
-      amount_max: (record.invoice_amount || record.remittance_amount || record.funding_amount || 0) * 1.05,
+      amount_min: (record.invoice_amount || record.remittance_amount || record.payment_amount || 0) * 0.95,
+      amount_max: (record.invoice_amount || record.remittance_amount || record.payment_amount || 0) * 1.05,
       tenant: record.invoice_tenant || undefined,
       limit: 10,
     })
@@ -380,7 +390,29 @@ function RecordDetailPanel({
 
   const hasRemittance = record.remittance_amount !== null;
   const hasInvoice = record.invoice_amount !== null;
-  const hasFunding = record.funding_amount !== null;
+  const hasFunding = record.received_payment_id !== null;
+  const hasPayment = record.payment_amount !== null;
+
+  const statusLabels: Record<string, string> = {
+    full_4way: "Full 4-Way Match ✅",
+    "3way_awaiting_payment": "3-Way — Awaiting Payment",
+    "3way_no_funding": "3-Way — No Funding Record",
+    "2way_matched": "2-Way Matched",
+    amount_mismatch: "Amount Mismatch",
+    invoice_payment_only: "Invoice + Payment Only",
+    invoice_only: "Invoice Only",
+    remittance_only: "Remittance Only",
+    payment_only: "Payment Only",
+    unmatched: "Unmatched",
+    resolved: "Resolved",
+  };
+
+  const statusColorClass = 
+    record.match_status === "full_4way" || record.match_status === "resolved" ? "text-[var(--color-ws-green)]" :
+    record.match_status === "amount_mismatch" ? "text-red-600" :
+    record.match_status === "3way_awaiting_payment" ? "text-blue-600" :
+    record.match_status === "3way_no_funding" ? "text-amber-600" :
+    "text-[var(--color-ws-orange)]";
 
   return (
     <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={onClose}>
@@ -392,17 +424,8 @@ function RecordDetailPanel({
         <div className="sticky top-0 bg-white border-b border-[var(--color-ws-gray)] p-6 flex items-center justify-between z-10">
           <div>
             <h2 className="text-lg font-bold"><NvcLink nvcCode={record.nvc_code} tenant={record.invoice_tenant} /></h2>
-            <p className={`text-sm font-semibold ${
-              record.match_status === "full_3way" ? "text-[var(--color-ws-green)]" :
-              record.match_status === "mismatch" ? "text-red-600" :
-              "text-[var(--color-ws-orange)]"
-            }`}>
-              {record.match_status === "full_3way" ? "Fully Reconciled" :
-               record.match_status === "mismatch" ? "Amount Mismatch" :
-               record.match_status === "partial_2way" ? "Partial Match (2-way)" :
-               record.match_status === "invoice_only" ? "Missing Remittance" :
-               record.match_status === "remittance_only" ? "Missing Invoice" :
-               record.match_status === "unmatched" ? "Funding Only" : record.match_status}
+            <p className={`text-sm font-semibold ${statusColorClass}`}>
+              {statusLabels[record.match_status] || record.match_status}
             </p>
           </div>
           <button
@@ -414,14 +437,14 @@ function RecordDetailPanel({
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Three Sources */}
+          {/* Four Sources */}
           <div className="space-y-3">
-            <p className="section-label">Sources</p>
+            <p className="section-label">Sources (4-Way Match)</p>
 
-            {/* Remittance */}
+            {/* Leg 1: Remittance */}
             <div className={`rounded-xl p-4 border ${hasRemittance ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Remittance (Email)</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">① Remittance (Email)</span>
                 <span className={`w-2 h-2 rounded-full ${hasRemittance ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
               </div>
               {hasRemittance ? (
@@ -434,10 +457,10 @@ function RecordDetailPanel({
               )}
             </div>
 
-            {/* Invoice */}
+            {/* Leg 2: Invoice */}
             <div className={`rounded-xl p-4 border ${hasInvoice ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invoice (Worksuite)</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">② Invoice (Worksuite)</span>
                 <span className={`w-2 h-2 rounded-full ${hasInvoice ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
               </div>
               {hasInvoice ? (
@@ -452,62 +475,70 @@ function RecordDetailPanel({
               )}
             </div>
 
-            {/* Funding */}
-            <div className={`rounded-xl p-4 border ${hasFunding ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
+            {/* Leg 3: Funding (Incoming) */}
+            <div className={`rounded-xl p-4 border ${hasFunding ? "border-blue-400 bg-blue-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Funding (MoneyCorp)</span>
-                <span className={`w-2 h-2 rounded-full ${hasFunding ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">③ Funding — Incoming (MoneyCorp)</span>
+                <span className={`w-2 h-2 rounded-full ${hasFunding ? "bg-blue-500" : "bg-gray-300"}`} />
               </div>
               {hasFunding ? (
                 <div className="space-y-1">
+                  <p className="text-lg font-bold">{formatAmt(record.received_payment_amount)}</p>
+                  <p className="text-xs text-gray-500">
+                    Received Payment ID: {record.received_payment_id || "—"} · Date: {record.received_payment_date || "—"}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No inbound funding record</p>
+              )}
+            </div>
+
+            {/* Leg 4: Payment (Outgoing) */}
+            <div className={`rounded-xl p-4 border ${hasPayment ? "border-[var(--color-ws-green)] bg-green-50/30" : "border-dashed border-gray-300 bg-gray-50"}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">④ Payment — Outgoing (MoneyCorp)</span>
+                <span className={`w-2 h-2 rounded-full ${hasPayment ? "bg-[var(--color-ws-green)]" : "bg-gray-300"}`} />
+              </div>
+              {hasPayment ? (
+                <div className="space-y-1">
                   <p className="text-lg font-bold">
-                    {formatAmt(record.funding_amount)}
-                    {(record as any).funding_currency && (record as any).funding_currency !== "USD" && (
-                      <span className="ml-2 text-xs font-normal text-gray-500">{(record as any).funding_currency}</span>
+                    {formatAmt(record.payment_amount)}
+                    {record.payment_currency && record.payment_currency !== "USD" && (
+                      <span className="ml-2 text-xs font-normal text-gray-500">{record.payment_currency}</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-500">
-                    Account: {record.funding_account_id || "—"} · Date: {record.funding_date || "—"}
-                    {(record as any).funding_status && ` · Status: ${(record as any).funding_status}`}
+                    Account: {record.payment_account_id || "—"} · Date: {record.payment_date || "—"}
+                    {record.payment_status && ` · Status: ${record.payment_status}`}
                   </p>
-                  {(record as any).funding_recipient && (
+                  {record.payment_recipient && (
                     <p className="text-xs text-gray-400">
-                      Recipient: {(record as any).funding_recipient}
-                      {(record as any).funding_recipient_country && ` (${(record as any).funding_recipient_country})`}
+                      Recipient: {record.payment_recipient}
+                      {record.payment_recipient_country && ` (${record.payment_recipient_country})`}
                     </p>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 italic">No MoneyCorp funding found</p>
+                <p className="text-sm text-gray-400 italic">No outbound payment found</p>
               )}
             </div>
           </div>
 
           {/* Amount Mismatch Detail */}
-          {record.match_status === "mismatch" && (
+          {record.match_status === "amount_mismatch" && (
             <div className="rounded-xl bg-red-50 p-4 border border-red-200">
               <p className="text-xs font-semibold text-red-700 mb-2">Amount Mismatch Details</p>
-              <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm">
                 <div><span className="text-gray-500">Remittance:</span> {formatAmt(record.remittance_amount)}</div>
                 <div><span className="text-gray-500">Invoice:</span> {formatAmt(record.invoice_amount)}</div>
-                <div><span className="text-gray-500">Funding:</span> {formatAmt(record.funding_amount)}</div>
+                <div><span className="text-gray-500">Funding (in):</span> {formatAmt(record.received_payment_amount)}</div>
+                <div><span className="text-gray-500">Payment (out):</span> {formatAmt(record.payment_amount)}</div>
               </div>
             </div>
           )}
 
-          {/* Mismatch guidance when all sources present but amounts differ */}
-          {hasRemittance && hasInvoice && hasFunding && record.match_status === "mismatch" && (
-            <div className="rounded-xl bg-amber-50 p-4 border border-amber-200">
-              <p className="text-xs font-semibold text-amber-700 mb-1">All 3 sources present — amounts don&apos;t match</p>
-              <p className="text-xs text-amber-600">
-                Verify the funding amount in MoneyCorp. The discrepancy may be due to FX conversion,
-                batch payment grouping, or a data mapping issue. Use &ldquo;Flag for Follow-up&rdquo; to track investigation.
-              </p>
-            </div>
-          )}
-
           {/* Cross-Search — only show if actually missing a source */}
-          {(!hasRemittance || !hasInvoice || !hasFunding) && (
+          {(!hasRemittance || !hasInvoice || !hasPayment) && (
             <div>
               <p className="section-label mb-3">Find Missing Source</p>
               <div className="flex gap-2 mb-3">
@@ -1750,12 +1781,25 @@ const HAPPYPLACE_TENANTS = [
   { slug: "omnicomtbwa",      platform: "omnicomtbwa",       env: "us-e-6", clientId: 365, name: "Omnicom TBWA" },
 ];
 
+const CONFIG_SECTIONS = [
+  { id: "data-sources", label: "Data Sources", icon: "📡" },
+  { id: "sync", label: "Sync Schedule", icon: "🔄" },
+  { id: "thresholds", label: "Matching Thresholds", icon: "🎯" },
+  { id: "aliases", label: "Agency Aliases", icon: "🏷️" },
+  { id: "tenants", label: "Tenants", icon: "🏢" },
+  { id: "accounts", label: "MoneyCorp Accounts", icon: "💳" },
+  { id: "conventions", label: "Key Conventions", icon: "📋" },
+  { id: "display", label: "Display Preferences", icon: "🎨" },
+];
+
 function ConfigurationPanel({ onClose }: { onClose: () => void }) {
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [syncState, setSyncState] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeSection, setActiveSection] = useState("data-sources");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -1776,7 +1820,10 @@ function ConfigurationPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Group tenants
+  const filteredSections = searchQuery
+    ? CONFIG_SECTIONS.filter((s) => s.label.toLowerCase().includes(searchQuery.toLowerCase()))
+    : CONFIG_SECTIONS;
+
   const groups: Record<string, TenantInfo[]> = {};
   tenants.forEach((t) => {
     const g = t.group || "Other";
@@ -1784,183 +1831,294 @@ function ConfigurationPanel({ onClose }: { onClose: () => void }) {
     groups[g].push(t);
   });
 
+  const handleTriggerSync = () => {
+    api.health().then(() => {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/sync/trigger`, { method: "POST" })
+        .then(() => api.syncStatus().then((s) => setSyncState(s.sources || [])))
+        .catch(() => {});
+    });
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8" onClick={onClose}>
       <div
-        className="bg-white w-full max-w-2xl h-full overflow-auto shadow-xl"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[85vh] flex overflow-hidden"
         onClick={(e) => e.stopPropagation()}
+        style={{ animation: "fadeIn 0.15s ease-out" }}
       >
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-[var(--color-ws-gray)] p-6 flex items-center justify-between z-10">
-          <h2 className="text-lg font-bold">Configuration</h2>
-          <button
-            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400"
-            onClick={onClose}
-          >
-            ✕
-          </button>
+        {/* Left Sidebar — macOS System Settings style */}
+        <div className="w-64 border-r border-[var(--color-ws-gray)] bg-gray-50/50 flex flex-col">
+          <div className="p-4 border-b border-[var(--color-ws-gray)]">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold">Configuration</h2>
+              <button className="w-6 h-6 rounded-full hover:bg-gray-200 flex items-center justify-center text-gray-400 text-xs" onClick={onClose}>✕</button>
+            </div>
+            <input
+              type="text"
+              className="w-full border border-[var(--color-ws-gray)] rounded-lg px-3 py-1.5 text-sm bg-white"
+              placeholder="Search settings..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <nav className="flex-1 overflow-auto py-2">
+            {filteredSections.map((s) => (
+              <button
+                key={s.id}
+                className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${
+                  activeSection === s.id ? "bg-[var(--color-ws-orange)]/10 text-[var(--color-ws-orange)] font-semibold" : "text-gray-600 hover:bg-gray-100"
+                }`}
+                onClick={() => setActiveSection(s.id)}
+              >
+                <span className="text-base">{s.icon}</span>
+                {s.label}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {loading ? (
-          <div className="p-6"><LoadingSkeleton rows={6} /></div>
-        ) : (
-          <div className="p-6 space-y-8">
-            {error && <ErrorBox message={error} />}
+        {/* Right Content */}
+        <div className="flex-1 overflow-auto p-8">
+          {loading ? <LoadingSkeleton rows={6} /> : (
+            <>
+              {error && <ErrorBox message={error} />}
 
-            {/* Sync Status */}
-            <div>
-              <p className="section-label mb-4">Sync Status</p>
-              <div className="card">
-                {syncState.length > 0 ? (
-                  <div className="space-y-3">
-                    {syncState.map((s: any) => (
-                      <div key={s.source} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <StatusDot status={s.status === "ok" ? "ok" : "error"} />
-                          <span className="text-sm font-semibold capitalize">{s.source}</span>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span>{s.last_count || 0} records</span>
-                          <span>{s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "Never"}</span>
-                          <span className={`badge ${s.status === "ok" ? "badge-green" : "badge-orange"}`}>{s.status}</span>
-                        </div>
+              {activeSection === "data-sources" && config && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Data Sources</h3>
+                  <div className="space-y-4">
+                    <div className="card">
+                      <p className="section-label mb-3">Email Sources (Gmail)</p>
+                      <div className="space-y-3">
+                        {Object.entries(config.email_sources || {}).map(([key, query]) => (
+                          <div key={key} className="flex items-start gap-3">
+                            <span className="badge badge-gray min-w-[80px] text-center">{key}</span>
+                            <code className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded break-all">{query}</code>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400">No sync data available. Background sync runs every 5 minutes.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Tenants & Platform Access */}
-            <div>
-              <p className="section-label mb-4">Tenants ({tenants.length})</p>
-              <p className="text-sm text-gray-500 mb-3">
-                Omnicom tenants in Worksuite with direct Happy Place links. First click authenticates; subsequent clicks go straight through.
-              </p>
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <MetricCard label="Total Tenants" value={tenants.length} />
-                <MetricCard label="Groups" value={Object.keys(groups).length} />
-                <MetricCard label="Funding Method" value={tenants[0]?.funding_method || "MoneyCorp"} />
-              </div>
-              <div className="card p-0 overflow-hidden">
-                <table className="ws-table text-xs">
-                  <thead>
-                    <tr>
-                      <th>Tenant</th>
-                      <th>Group</th>
-                      <th>Domain</th>
-                      <th>Env</th>
-                      <th>Client ID</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {HAPPYPLACE_TENANTS.map((t) => {
-                      const tenantInfo = tenants.find((ti) => ti.slug === t.slug);
-                      const domain = `${t.platform}.${t.env}.platform.production.worksuite.tech`;
-                      const authUrl = `https://happyplace.production.worksuite.tech/staff-redirect?environment=${t.env}&client=${t.clientId}&domain=${domain}`;
-                      return (
-                        <tr key={t.slug}>
-                          <td className="font-semibold">{t.name}</td>
-                          <td className="text-gray-500">{tenantInfo?.group?.replace("Omnicom ", "") || "—"}</td>
-                          <td className="font-mono text-gray-400">{tenantInfo?.domain || `${t.slug}.worksuite.com`}</td>
-                          <td><span className="badge badge-gray">{t.env}</span></td>
-                          <td className="font-mono text-gray-400">{t.clientId}</td>
-                          <td className="text-right">
-                            <a
-                              href={authUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[var(--color-ws-orange)] hover:underline font-semibold"
-                            >
-                              Open
-                            </a>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Email Sources */}
-            {config && (
-              <div>
-                <p className="section-label mb-4">Email Sources</p>
-                <div className="card">
-                  <div className="space-y-3">
-                    {Object.entries(config.email_sources || {}).map(([key, query]) => (
-                      <div key={key} className="flex items-start gap-3">
-                        <span className="badge badge-gray min-w-[80px] text-center">{key}</span>
-                        <code className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded break-all">{query}</code>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-[var(--color-ws-gray)]">
-                    <p className="text-xs text-gray-400">Service account: {config.gmail_user}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* MoneyCorp Accounts */}
-            <div>
-              <p className="section-label mb-4">MoneyCorp Account IDs</p>
-              <div className="card">
-                <p className="text-sm text-gray-500 mb-3">12 sub-accounts across OMC tenants. Account 859149 (Specialty Marketing) is inactive.</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: "859133", tenant: "omcbbdo" },
-                    { id: "859134", tenant: "omnicomddb" },
-                    { id: "859135", tenant: "omnicomtbwa" },
-                    { id: "859136", tenant: "omcflywheel" },
-                    { id: "859137", tenant: "omnicommedia" },
-                    { id: "859138", tenant: "omnicomprecision" },
-                    { id: "859139", tenant: "omnicomoac" },
-                    { id: "859140", tenant: "omnicombranding" },
-                    { id: "859141", tenant: "omnicomprg" },
-                    { id: "859142", tenant: "omcohg" },
-                    { id: "859143", tenant: "Omnicom Production" },
-                    { id: "859149", tenant: "Specialty Marketing" },
-                  ].map((a) => (
-                    <div key={a.id} className="flex items-center gap-2 text-sm">
-                      <span className="font-mono text-xs text-gray-400">{a.id}</span>
-                      <span className="text-gray-600">{a.tenant}</span>
+                      <p className="text-xs text-gray-400 mt-3">Service account: {config.gmail_user}</p>
                     </div>
-                  ))}
+                    <div className="card">
+                      <p className="section-label mb-2">Worksuite Database</p>
+                      <p className="text-sm text-gray-600">Database: {config.db_name}</p>
+                      <p className="text-xs text-gray-400 mt-1">Connection via SSH tunnel to aggregate DB</p>
+                    </div>
+                    <div className="card">
+                      <p className="section-label mb-2">MoneyCorp API</p>
+                      <p className="text-sm text-gray-600">Endpoints: payments, receivedPayments, accounts, balances</p>
+                      <p className="text-xs text-gray-400 mt-1">Token refreshes automatically every 13 minutes</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Naming Conventions */}
-            <div>
-              <p className="section-label mb-4">Key Conventions</p>
-              <div className="card">
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-start gap-3">
-                    <span className="font-semibold min-w-[140px]">NVC Code</span>
-                    <span className="text-gray-600">Universal join key across all 3 systems. Format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">NVC7Kxxxxxxx</code></span>
+              {activeSection === "sync" && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold">Sync Schedule</h3>
+                    <button className="btn btn-orange text-sm" onClick={handleTriggerSync}>Trigger Sync Now</button>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <span className="font-semibold min-w-[140px]">MoneyCorp Ref</span>
-                    <span className="text-gray-600">Payment reference format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">tenant.NVC_CODE</code> (e.g. omnicomtbwa.NVC7KVAR66CR)</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="font-semibold min-w-[140px]">Worksuite Field</span>
-                    <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">documents_payment.invoice_id</code> = NVC code</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="font-semibold min-w-[140px]">OASYS CSV</span>
-                    <span className="text-gray-600"><code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Inv Nbr</code> column = NVC code</span>
+                  <p className="text-sm text-gray-500">All sources sync automatically every 5 minutes.</p>
+                  <div className="card">
+                    {syncState.length > 0 ? (
+                      <div className="space-y-4">
+                        {syncState.map((s: any) => (
+                          <div key={s.source} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                            <div className="flex items-center gap-3">
+                              <StatusDot status={s.status === "ok" ? "ok" : "error"} />
+                              <span className="text-sm font-semibold capitalize">{s.source.replace(/_/g, " ")}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-gray-500">
+                              <span>{s.last_count || 0} records</span>
+                              <span>{s.last_sync_at ? new Date(s.last_sync_at).toLocaleString() : "Never"}</span>
+                              <span className={`badge ${s.status === "ok" ? "badge-green" : "badge-orange"}`}>{s.status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">No sync data available yet.</p>
+                    )}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              )}
+
+              {activeSection === "thresholds" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Matching Thresholds</h3>
+                  <div className="card space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">Amount Tolerance</p>
+                        <p className="text-xs text-gray-400">Max difference for amount matching</p>
+                      </div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">± $0.01</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">Funding Match — Date Window</p>
+                        <p className="text-xs text-gray-400">Max days between received payment and remittance</p>
+                      </div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">± 3 days</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">Auto-Match Confidence</p>
+                        <p className="text-xs text-gray-400">Min score to auto-link received payment to email</p>
+                      </div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">≥ 0.80</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">Suggest Threshold</p>
+                        <p className="text-xs text-gray-400">Min score to suggest a match for manual review</p>
+                      </div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">≥ 0.50</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400">These thresholds are currently read-only. Edit config.json to change.</p>
+                </div>
+              )}
+
+              {activeSection === "aliases" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Agency Aliases</h3>
+                  <p className="text-sm text-gray-500">Maps payer names from MoneyCorp received payments to agency names from remittance emails.</p>
+                  <div className="card">
+                    <div className="space-y-2">
+                      {[
+                        ["THE SCIENOMICS", "Scienomics"],
+                        ["ADELPHI RESEARCH", "Adelphi Research Global"],
+                        ["DDB CHICAGO INC.", "DDB Chicago, DDB"],
+                        ["BBDO USA LLC", "BBDO"],
+                        ["ENERGY BBDO", "Energy BBDO"],
+                        ["FLEISHMANHILLARD", "FleishmanHillard"],
+                        ["TBWA WORLDWIDE", "TBWA"],
+                        ["OMNICOM MEDIA", "Omnicom Media Group, OMG"],
+                        ["OMNICOM HEALTH", "Omnicom Health Group, OHG"],
+                      ].map(([payer, aliases]) => (
+                        <div key={payer} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                          <span className="text-sm font-mono font-semibold">{payer}</span>
+                          <span className="text-xs text-gray-500">→ {aliases}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400">Aliases are built iteratively from data. Edit AGENCY_ALIASES in recon_db.py to add more.</p>
+                </div>
+              )}
+
+              {activeSection === "tenants" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Tenants ({tenants.length})</h3>
+                  <p className="text-sm text-gray-500">Omnicom tenants in Worksuite with direct Happy Place links.</p>
+                  <div className="card p-0 overflow-hidden">
+                    <table className="ws-table text-xs">
+                      <thead>
+                        <tr><th>Tenant</th><th>Group</th><th>Domain</th><th>Env</th><th>Client ID</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {HAPPYPLACE_TENANTS.map((t) => {
+                          const tenantInfo = tenants.find((ti) => ti.slug === t.slug);
+                          const domain = `${t.platform}.${t.env}.platform.production.worksuite.tech`;
+                          const authUrl = `https://happyplace.production.worksuite.tech/staff-redirect?environment=${t.env}&client=${t.clientId}&domain=${domain}`;
+                          return (
+                            <tr key={t.slug}>
+                              <td className="font-semibold">{t.name}</td>
+                              <td className="text-gray-500">{tenantInfo?.group?.replace("Omnicom ", "") || "—"}</td>
+                              <td className="font-mono text-gray-400">{tenantInfo?.domain || `${t.slug}.worksuite.com`}</td>
+                              <td><span className="badge badge-gray">{t.env}</span></td>
+                              <td className="font-mono text-gray-400">{t.clientId}</td>
+                              <td className="text-right">
+                                <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--color-ws-orange)] hover:underline font-semibold">Open</a>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === "accounts" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">MoneyCorp Account IDs</h3>
+                  <div className="card">
+                    <p className="text-sm text-gray-500 mb-3">12 sub-accounts across OMC tenants.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: "859133", tenant: "omcbbdo" },
+                        { id: "859134", tenant: "omnicomddb" },
+                        { id: "859135", tenant: "omnicomtbwa" },
+                        { id: "859136", tenant: "omcflywheel" },
+                        { id: "859137", tenant: "omnicommedia" },
+                        { id: "859138", tenant: "omnicomprecision" },
+                        { id: "859139", tenant: "omnicomoac" },
+                        { id: "859140", tenant: "omnicombranding" },
+                        { id: "859141", tenant: "omnicomprg" },
+                        { id: "859142", tenant: "omcohg" },
+                        { id: "859143", tenant: "Omnicom Production" },
+                        { id: "859149", tenant: "Specialty Marketing (inactive)" },
+                      ].map((a) => (
+                        <div key={a.id} className="flex items-center gap-2 text-sm">
+                          <span className="font-mono text-xs text-gray-400">{a.id}</span>
+                          <span className="text-gray-600">{a.tenant}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === "conventions" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Key Conventions</h3>
+                  <div className="card space-y-3 text-sm">
+                    <div className="flex items-start gap-3">
+                      <span className="font-semibold min-w-[140px]">NVC Code</span>
+                      <span className="text-gray-600">Universal join key across all 4 systems. Format: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">NVC7Kxxxxxxx</code></span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-semibold min-w-[140px]">MoneyCorp Ref</span>
+                      <span className="text-gray-600">Payment reference: <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">tenant.NVC_CODE</code></span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-semibold min-w-[140px]">4-Way Match</span>
+                      <span className="text-gray-600">Remittance (email) → Funding (received) → Invoice (DB) → Payment (outbound)</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeSection === "display" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-bold">Display Preferences</h3>
+                  <div className="card space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div><p className="text-sm font-semibold">Records Per Page</p></div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">200</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div><p className="text-sm font-semibold">Currency Format</p></div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">USD ($)</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div><p className="text-sm font-semibold">Timezone</p></div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">America/New_York</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div><p className="text-sm font-semibold">Theme</p></div>
+                      <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">Light (Worksuite)</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400">Display preferences are currently read-only.</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2085,6 +2243,207 @@ function MoneyCorpTab() {
   );
 }
 
+/* ── Funding Tab (Incoming — Received Payments) ──────────────────────── */
+
+function FundingIncomingTab() {
+  const [records, setRecords] = useState<ReceivedPayment[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState<any>(null);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterPayer, setFilterPayer] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.receivedPayments({ match_status: filterStatus || undefined, payer: filterPayer || undefined, limit: 200 })
+      .then((res) => { setRecords(res.records); setTotal(res.total); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [filterStatus, filterPayer]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.receivedPaymentsSummary().then(setSummary).catch(() => {}); }, []);
+
+  const matchBadge = (s: string) => {
+    if (s === "matched") return "badge-green";
+    if (s === "suggested") return "bg-yellow-100 text-yellow-700";
+    return "badge-gray";
+  };
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        Inbound USD payments from customers into MoneyCorp sub-accounts. Matched to remittance emails by amount + date + payer name.
+      </p>
+
+      {summary && (
+        <div className="grid grid-cols-4 gap-4">
+          <MetricCard label="Total Received" value={summary.total} />
+          <MetricCard label="Total USD" value={formatCurrency(summary.total_amount)} />
+          <MetricCard label="Matched" value={summary.by_status?.matched?.count || 0} />
+          <MetricCard label="Unmatched" value={summary.by_status?.unmatched?.count || 0} deltaColor="red" />
+        </div>
+      )}
+
+      <div className="flex items-end gap-4 flex-wrap">
+        <div>
+          <label className="section-label block mb-2">Match Status</label>
+          <select className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="">All</option>
+            <option value="matched">Matched</option>
+            <option value="suggested">Suggested</option>
+            <option value="unmatched">Unmatched</option>
+          </select>
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <label className="section-label block mb-2">Payer</label>
+          <input type="text" className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-full" placeholder="Search payer name..." value={filterPayer} onChange={(e) => setFilterPayer(e.target.value)} />
+        </div>
+      </div>
+
+      {error && <ErrorBox message={error} />}
+      {loading && <LoadingSkeleton rows={6} />}
+
+      {!loading && records.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <table className="ws-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Payer</th>
+                <th>Amount (USD)</th>
+                <th>Sub-Account</th>
+                <th>Status</th>
+                <th>Match</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rp) => (
+                <tr key={rp.id}>
+                  <td className="text-sm text-gray-500 whitespace-nowrap">{(rp.payment_date || "").slice(0, 10)}</td>
+                  <td className="text-sm font-medium max-w-[200px] truncate">{rp.payer_name || "—"}</td>
+                  <td className="text-sm font-bold">{formatCurrencyFull(rp.amount)}</td>
+                  <td className="text-xs text-gray-400 max-w-[180px] truncate" title={rp.account_name}>{rp.account_name?.replace("Worksuite Inc. re: ", "") || rp.account_id}</td>
+                  <td><span className="badge badge-gray">{rp.payment_status}</span></td>
+                  <td><span className={`badge ${matchBadge(rp.match_status)}`}>{rp.match_status}</span></td>
+                  <td className="text-xs text-gray-400">{rp.match_confidence ? `${(rp.match_confidence * 100).toFixed(0)}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && records.length === 0 && !error && (
+        <div className="py-12 text-center">
+          <p className="text-lg font-semibold text-gray-400">No received payments found</p>
+          <p className="text-sm text-gray-300 mt-1">Sync will fetch MoneyCorp receivedPayments automatically.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Payments Tab (Outgoing to Contractors) ──────────────────────────── */
+
+function PaymentsOutgoingTab() {
+  const [records, setRecords] = useState<ReconRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filterTenant, setFilterTenant] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError("");
+    const params: Record<string, any> = { limit: 500 };
+    if (filterTenant) params.tenant = filterTenant;
+    if (filterSearch) params.search = filterSearch;
+    api.crossSearch({ q: filterSearch || "", source: "funding", tenant: filterTenant, limit: 500 })
+      .then((res) => { setRecords(res.results); setTotal(res.count); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [filterTenant, filterSearch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totalValue = records.reduce((s, r) => s + (r.payment_amount || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        Outbound payments from MoneyCorp to contractors. Each payment is linked to an NVC code via the payment reference.
+      </p>
+
+      <div className="grid grid-cols-3 gap-4">
+        <MetricCard label="Outbound Payments" value={total} />
+        <MetricCard label="Total Value" value={formatCurrencyFull(totalValue)} />
+        <MetricCard label="Currencies" value="Multi" delta="USD, PHP, EUR, GBP, MXN..." />
+      </div>
+
+      <div className="flex items-end gap-4 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label className="section-label block mb-2">Search NVC</label>
+          <input type="text" className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm w-full" placeholder="NVC7K..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
+        </div>
+        <div>
+          <label className="section-label block mb-2">Group</label>
+          <select className="border border-[var(--color-ws-gray)] rounded-lg px-3 py-2 text-sm" value={filterTenant} onChange={(e) => setFilterTenant(e.target.value)}>
+            <option value="">All</option>
+            {["omcbbdo","omcflywheel","omcohg","omnicom","omnicombranding","omnicomddb","omnicommedia","omnicomoac","omnicomprecision","omnicomprg","omnicomtbwa"].map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && <ErrorBox message={error} />}
+      {loading && <LoadingSkeleton rows={6} />}
+
+      {!loading && records.length > 0 && (
+        <div className="card p-0 overflow-hidden">
+          <table className="ws-table">
+            <thead>
+              <tr>
+                <th>NVC Code</th>
+                <th>Recipient</th>
+                <th>Amount</th>
+                <th>Currency</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Group</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((r: any, i: number) => (
+                <tr key={r.nvc_code || i}>
+                  <td><NvcLink nvcCode={r.nvc_code} tenant={r.invoice_tenant} /></td>
+                  <td className="text-sm text-gray-500 max-w-[180px] truncate">{r.payment_recipient || "—"}</td>
+                  <td className="text-sm font-medium">{r.payment_amount ? formatCurrencyFull(r.payment_amount) : "—"}</td>
+                  <td><span className="badge badge-gray">{r.payment_currency || "USD"}</span></td>
+                  <td className="text-xs text-gray-500">{r.payment_status || "—"}</td>
+                  <td className="text-sm text-gray-500 whitespace-nowrap">{(r.payment_date || "").slice(0, 10)}</td>
+                  <td className="text-sm text-gray-400">{r.invoice_tenant || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && records.length === 0 && !error && (
+        <div className="py-12 text-center">
+          <p className="text-lg font-semibold text-gray-400">No outbound payments found</p>
+          <p className="text-sm text-gray-300 mt-1">Data syncs from MoneyCorp every 5 minutes.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Shared Components ───────────────────────────────────────────────── */
 
 function ErrorBox({ message }: { message: string }) {
@@ -2139,10 +2498,11 @@ export default function Home() {
       )}
       {activeTab === 0 && <OverviewTab />}
       {activeTab === 1 && <QueueTab />}
-      {activeTab === 2 && <FundingEmailsTab />}
-      {activeTab === 3 && <InvoicesTab />}
-      {activeTab === 4 && <PayRunsTab />}
-      {activeTab === 5 && <MoneyCorpTab />}
+      {activeTab === 2 && <InvoicesTab />}
+      {activeTab === 3 && <FundingEmailsTab />}
+      {activeTab === 4 && <PaymentsOutgoingTab />}
+      {activeTab === 5 && <FundingIncomingTab />}
+      {activeTab === 6 && <PayRunsTab />}
 
       {showSettings && <ConfigurationPanel onClose={() => setShowSettings(false)} />}
     </div>

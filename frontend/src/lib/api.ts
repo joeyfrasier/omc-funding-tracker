@@ -180,9 +180,16 @@ export interface ReconRecord {
   invoice_tenant: string | null;
   invoice_payrun_ref: string | null;
   invoice_currency: string | null;
-  funding_amount: number | null;
-  funding_account_id: string | null;
-  funding_date: string | null;
+  payment_amount: number | null;
+  payment_account_id: string | null;
+  payment_date: string | null;
+  payment_currency: string | null;
+  payment_status: string | null;
+  payment_recipient: string | null;
+  payment_recipient_country: string | null;
+  received_payment_id: string | null;
+  received_payment_amount: number | null;
+  received_payment_date: string | null;
   match_status: string;
   match_flags: string;
   first_seen_at: string;
@@ -192,6 +199,28 @@ export interface ReconRecord {
   notes: string | null;
   flag: string | null;
   flag_notes: string | null;
+}
+
+export interface ReceivedPayment {
+  id: string;
+  account_id: string;
+  account_name: string;
+  amount: number;
+  currency: string;
+  payment_date: string;
+  payment_status: string;
+  payer_name: string;
+  raw_info: string;
+  msl_reference: string;
+  created_on: string;
+  matched_remittance_email_id: string | null;
+  match_confidence: number | null;
+  match_method: string | null;
+  match_status: string;
+  matched_at: string | null;
+  matched_by: string | null;
+  notes: string | null;
+  fetched_at: string;
 }
 
 export const api = {
@@ -282,4 +311,34 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // Received Payments (Leg 3 — Inbound Funding)
+  receivedPayments: (params: {
+    account_id?: string; match_status?: string; payer?: string;
+    date_from?: string; date_to?: string; limit?: number; offset?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") qs.set(k, String(v)); });
+    return fetchAPI<{ records: ReceivedPayment[]; total: number }>(`/api/received-payments?${qs}`);
+  },
+
+  receivedPaymentsSummary: () =>
+    fetchAPI<{ total: number; total_amount: number; by_status: Record<string, { count: number; amount: number }> }>("/api/received-payments/summary"),
+
+  receivedPaymentDetail: (id: string) =>
+    fetchAPI<ReceivedPayment>(`/api/received-payments/${encodeURIComponent(id)}`),
+
+  matchReceivedPayment: (id: string, emailId: string) =>
+    fetchAPI<{ success: boolean; linked_nvcs: number }>(`/api/received-payments/${encodeURIComponent(id)}/match`, {
+      method: "POST",
+      body: JSON.stringify({ email_id: emailId }),
+    }),
+
+  unmatchReceivedPayment: (id: string) =>
+    fetchAPI<{ success: boolean }>(`/api/received-payments/${encodeURIComponent(id)}/unmatch`, {
+      method: "POST",
+    }),
+
+  receivedPaymentSuggestions: (id: string) =>
+    fetchAPI<{ payment_id: string; suggestions: any[] }>(`/api/received-payments/suggestions/${encodeURIComponent(id)}`),
 };
