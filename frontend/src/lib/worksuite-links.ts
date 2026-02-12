@@ -56,6 +56,16 @@ export function getHappyPlaceAuthUrl(tenant: string): string | null {
 }
 
 /**
+ * Get the direct URL to download an invoice PDF.
+ * Requires the Worksuite payment ID (documents_payment.id).
+ */
+export function getInvoicePdfUrl(tenant: string, paymentId: number): string | null {
+  const cfg = TENANT_MAP[tenant];
+  if (!cfg) return null;
+  return `https://${cfg.platform_slug}.${cfg.environment}.platform.production.worksuite.tech/api/payments/${paymentId}/invoice_file/`;
+}
+
+/**
  * Check if a tenant has a valid platform configuration.
  */
 export function hasPlatformConfig(tenant: string): boolean {

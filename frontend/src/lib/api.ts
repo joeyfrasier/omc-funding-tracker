@@ -155,6 +155,7 @@ export interface MoneyCorpAccount {
 
 export interface CachedInvoice {
   nvc_code: string;
+  payment_id: number | null;
   invoice_number: string;
   total_amount: number;
   currency: string;

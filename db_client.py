@@ -139,6 +139,7 @@ def get_omc_payments(days_back=60, status=None) -> List[dict]:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         query = """
             SELECT 
+                p.id as payment_id,
                 p.invoice_id as nvc_code,
                 p.number as invoice_number,
                 p.total_amount,

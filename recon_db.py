@@ -91,6 +91,7 @@ def init_recon_db():
 
         CREATE TABLE IF NOT EXISTS cached_invoices (
             nvc_code TEXT PRIMARY KEY,
+            payment_id INTEGER,
             invoice_number TEXT,
             total_amount REAL,
             currency TEXT,
@@ -607,11 +608,11 @@ def cache_invoices(invoices: List[Dict[str, Any]]):
     for inv in invoices:
         conn.execute("""
             INSERT OR REPLACE INTO cached_invoices
-            (nvc_code, invoice_number, total_amount, currency, status, status_label,
+            (nvc_code, payment_id, invoice_number, total_amount, currency, status, status_label,
              paid_date, processing_date, in_flight_date, tenant, payrun_id, created_at, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            inv.get('nvc_code'), inv.get('invoice_number'), inv.get('total_amount'),
+            inv.get('nvc_code'), inv.get('payment_id'), inv.get('invoice_number'), inv.get('total_amount'),
             inv.get('currency', ''), inv.get('status'), inv.get('status_label', ''),
             inv.get('paid_date', ''), inv.get('processing_date', ''),
             inv.get('in_flight_date', ''), inv.get('tenant', ''),
