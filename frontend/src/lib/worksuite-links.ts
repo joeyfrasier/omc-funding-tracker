@@ -19,17 +19,17 @@ interface TenantPlatformConfig {
 
 // Mapping from DB tenant slug (stripped of .worksuite.com) to platform config
 const TENANT_MAP: Record<string, TenantPlatformConfig> = {
-  omcbbdo:           { platform_slug: "omcbbdo",           environment: "us-e-6", client_id: 360 },
-  omcflywheel:       { platform_slug: "omcflywheel",       environment: "us-e-6", client_id: 350 },
-  omcohg:            { platform_slug: "omcohg",            environment: "us-e-6", client_id: 351 },
-  omnicom:           { platform_slug: "omnicom",           environment: "us-e-6", client_id: 325 },
-  omnicombranding:   { platform_slug: "omnicombranding",   environment: "us-e-6", client_id: 357 },
+  omcbbdo:           { platform_slug: "omcbbdo",           environment: "us-e-2", client_id: 89 },
+  omcflywheel:       { platform_slug: "omcflywheel",       environment: "us-e-2", client_id: 91 },
+  omcohg:            { platform_slug: "omcohg",            environment: "us-e-2", client_id: 92 },
+  omnicom:           { platform_slug: "omnicom",           environment: "us-e-2", client_id: 97 },
+  omnicombranding:   { platform_slug: "omnicombranding",   environment: "us-e-2", client_id: 90 },
   omnicomddb:        { platform_slug: "omnicomddb",        environment: "us-e-5", client_id: 212 },
-  omnicommedia:      { platform_slug: "omnicommedia",      environment: "us-e-6", client_id: 354 },
-  omnicomoac:        { platform_slug: "omnicomoac",        environment: "us-e-6", client_id: 356 },
-  omnicomprecision:  { platform_slug: "omnicomprecision",  environment: "us-e-6", client_id: 372 },
-  omnicomprg:        { platform_slug: "omnicomprg",        environment: "us-e-6", client_id: 353 },
-  omnicomtbwa:       { platform_slug: "omnicomtbwa",       environment: "us-e-6", client_id: 365 },
+  omnicommedia:      { platform_slug: "omnicommedia",      environment: "us-e-2", client_id: 65 },
+  omnicomoac:        { platform_slug: "omnicomoac",        environment: "us-e-2", client_id: 93 },
+  omnicomprecision:  { platform_slug: "omnicomprecision",  environment: "us-e-2", client_id: 94 },
+  omnicomprg:        { platform_slug: "omnicomprg",        environment: "us-e-2", client_id: 96 },
+  omnicomtbwa:       { platform_slug: "omnicomtbwa",       environment: "us-e-2", client_id: 108 },
 };
 
 /**
