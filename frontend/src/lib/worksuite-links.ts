@@ -66,6 +66,16 @@ export function getInvoicePdfUrl(tenant: string, paymentId: number): string | nu
 }
 
 /**
+ * Get the direct URL to download an invoice attachment (if one was uploaded).
+ * Not all invoices have attachments — the URL may 404.
+ */
+export function getInvoiceAttachmentUrl(tenant: string, paymentId: number): string | null {
+  const cfg = TENANT_MAP[tenant];
+  if (!cfg) return null;
+  return `https://${cfg.platform_slug}.${cfg.environment}.platform.production.worksuite.tech/api/payments/${paymentId}/attachment/`;
+}
+
+/**
  * Check if a tenant has a valid platform configuration.
  */
 export function hasPlatformConfig(tenant: string): boolean {
