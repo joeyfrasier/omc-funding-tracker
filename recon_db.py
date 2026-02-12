@@ -1,4 +1,11 @@
-"""SQLite database for reconciliation records — tracks 3-way matching."""
+"""SQLite database for reconciliation records — tracks 4-way matching.
+
+4-Way Match Legs:
+  1. Remittance — Gmail emails (OASYS/D365 ACH/LDN GSS)
+  2. Invoice — Worksuite Aggregate DB
+  3. Funding (incoming) — MoneyCorp receivedPayments (USD from customer)
+  4. Payment (outgoing) — MoneyCorp payments (to contractor)
+"""
 import json
 import logging
 import sqlite3
@@ -9,6 +16,19 @@ from typing import Optional, Dict, List, Any
 logger = logging.getLogger(__name__)
 
 RECON_DB_PATH = Path('data/recon.db')
+
+# Agency name aliases for received payment matching
+AGENCY_ALIASES = {
+    "THE SCIENOMICS": ["Scienomics"],
+    "ADELPHI RESEARCH": ["Adelphi Research Global"],
+    "DDB CHICAGO INC.": ["DDB Chicago", "DDB"],
+    "BBDO USA LLC": ["BBDO"],
+    "ENERGY BBDO": ["Energy BBDO"],
+    "FLEISHMANHILLARD": ["FleishmanHillard"],
+    "TBWA WORLDWIDE": ["TBWA"],
+    "OMNICOM MEDIA": ["Omnicom Media Group", "OMG"],
+    "OMNICOM HEALTH": ["Omnicom Health Group", "OHG"],
+}
 
 
 def _get_conn():
@@ -86,6 +106,32 @@ def init_recon_db():
         );
         CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON cached_invoices(tenant);
         CREATE INDEX IF NOT EXISTS idx_invoices_status ON cached_invoices(status_label);
+
+        CREATE TABLE IF NOT EXISTS received_payments (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            account_name TEXT,
+            amount REAL NOT NULL,
+            currency TEXT DEFAULT 'USD',
+            payment_date TEXT,
+            payment_status TEXT,
+            payer_name TEXT,
+            raw_info TEXT,
+            msl_reference TEXT,
+            created_on TEXT,
+            matched_remittance_email_id TEXT,
+            match_confidence REAL,
+            match_method TEXT,
+            match_status TEXT DEFAULT 'unmatched',
+            matched_at TEXT,
+            matched_by TEXT,
+            notes TEXT,
+            fetched_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rp_account ON received_payments(account_id);
+        CREATE INDEX IF NOT EXISTS idx_rp_status ON received_payments(match_status);
+        CREATE INDEX IF NOT EXISTS idx_rp_date ON received_payments(payment_date);
+        CREATE INDEX IF NOT EXISTS idx_rp_payer ON received_payments(payer_name);
     """)
     conn.commit()
     conn.close()
@@ -137,21 +183,31 @@ def upsert_from_invoice(nvc_code: str, amount: float, status: str, tenant: str, 
 
 def upsert_from_funding(nvc_code: str, amount: float, account_id: str, date: str,
                         currency: str = '', status: str = '', recipient: str = '', recipient_country: str = ''):
-    """Insert or update funding leg for an NVC code."""
+    """Insert or update funding/payment (outbound) leg for an NVC code.
+    
+    Note: This is the OUTBOUND payment leg (Leg 4). Column names are now payment_*.
+    Function name kept for backward compatibility with sync_service.
+    """
+    upsert_from_payment(nvc_code, amount, account_id, date, currency, status, recipient, recipient_country)
+
+
+def upsert_from_payment(nvc_code: str, amount: float, account_id: str, date: str,
+                         currency: str = '', status: str = '', recipient: str = '', recipient_country: str = ''):
+    """Insert or update payment (outbound) leg for an NVC code — Leg 4."""
     conn = _get_conn()
     now = _now()
     conn.execute("""
-        INSERT INTO reconciliation_records (nvc_code, funding_amount, funding_account_id, funding_date,
-            funding_currency, funding_status, funding_recipient, funding_recipient_country, first_seen_at, last_updated_at)
+        INSERT INTO reconciliation_records (nvc_code, payment_amount, payment_account_id, payment_date,
+            payment_currency, payment_status, payment_recipient, payment_recipient_country, first_seen_at, last_updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(nvc_code) DO UPDATE SET
-            funding_amount = excluded.funding_amount,
-            funding_account_id = excluded.funding_account_id,
-            funding_date = excluded.funding_date,
-            funding_currency = excluded.funding_currency,
-            funding_status = excluded.funding_status,
-            funding_recipient = excluded.funding_recipient,
-            funding_recipient_country = excluded.funding_recipient_country,
+            payment_amount = excluded.payment_amount,
+            payment_account_id = excluded.payment_account_id,
+            payment_date = excluded.payment_date,
+            payment_currency = excluded.payment_currency,
+            payment_status = excluded.payment_status,
+            payment_recipient = excluded.payment_recipient,
+            payment_recipient_country = excluded.payment_recipient_country,
             last_updated_at = ?
     """, (nvc_code, amount, account_id, date, currency, status, recipient, recipient_country, now, now, now))
     conn.commit()
@@ -159,8 +215,172 @@ def upsert_from_funding(nvc_code: str, amount: float, account_id: str, date: str
     recalculate_match_status(nvc_code)
 
 
+def upsert_received_payment(payment_id: str, account_id: str, account_name: str,
+                             amount: float, currency: str, payment_date: str,
+                             payment_status: str, payer_name: str, raw_info: str,
+                             msl_reference: str, created_on: str):
+    """Insert or update a received payment record (incoming funding — Leg 3)."""
+    conn = _get_conn()
+    now = _now()
+    conn.execute("""
+        INSERT INTO received_payments (id, account_id, account_name, amount, currency, payment_date,
+            payment_status, payer_name, raw_info, msl_reference, created_on, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            account_name = excluded.account_name,
+            amount = excluded.amount,
+            currency = excluded.currency,
+            payment_date = excluded.payment_date,
+            payment_status = excluded.payment_status,
+            payer_name = excluded.payer_name,
+            raw_info = excluded.raw_info,
+            msl_reference = excluded.msl_reference,
+            created_on = excluded.created_on,
+            fetched_at = excluded.fetched_at
+    """, (payment_id, account_id, account_name, amount, currency, payment_date,
+          payment_status, payer_name, raw_info, msl_reference, created_on, now))
+    conn.commit()
+    conn.close()
+
+
+def link_received_payment_to_nvc(nvc_code: str, received_payment_id: str,
+                                  amount: float, date: str):
+    """Link a received payment to an NVC code in reconciliation_records (Leg 3)."""
+    conn = _get_conn()
+    now = _now()
+    conn.execute("""
+        UPDATE reconciliation_records SET
+            received_payment_id = ?,
+            received_payment_amount = ?,
+            received_payment_date = ?,
+            last_updated_at = ?
+        WHERE nvc_code = ?
+    """, (received_payment_id, amount, date, now, nvc_code))
+    conn.commit()
+    conn.close()
+    recalculate_match_status(nvc_code)
+
+
+def get_received_payments(
+    account_id: Optional[str] = None,
+    match_status: Optional[str] = None,
+    payer: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> tuple:
+    """Get received payments with filters. Returns (records, total)."""
+    conn = _get_conn()
+    conditions = []
+    params: list = []
+
+    if account_id:
+        conditions.append("account_id = ?")
+        params.append(account_id)
+    if match_status:
+        conditions.append("match_status = ?")
+        params.append(match_status)
+    if payer:
+        conditions.append("payer_name LIKE ?")
+        params.append(f"%{payer}%")
+    if date_from:
+        conditions.append("payment_date >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("payment_date <= ?")
+        params.append(date_to)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    total = conn.execute(f"SELECT COUNT(*) FROM received_payments {where}", params).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT * FROM received_payments {where} ORDER BY payment_date DESC LIMIT ? OFFSET ?",
+        params + [limit, offset]
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
+def get_received_payment(payment_id: str) -> Optional[Dict[str, Any]]:
+    """Get a single received payment."""
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_received_payments_summary() -> Dict[str, Any]:
+    """Get received payments summary."""
+    conn = _get_conn()
+    total = conn.execute("SELECT COUNT(*) FROM received_payments").fetchone()[0]
+    total_amount = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM received_payments").fetchone()[0]
+    by_status = conn.execute(
+        "SELECT match_status, COUNT(*) as cnt, SUM(amount) as total FROM received_payments GROUP BY match_status"
+    ).fetchall()
+    conn.close()
+    return {
+        'total': total,
+        'total_amount': total_amount,
+        'by_status': {r['match_status']: {'count': r['cnt'], 'amount': r['total']} for r in by_status},
+    }
+
+
+def match_received_payment(payment_id: str, email_id: str, confidence: float,
+                            method: str, matched_by: str = 'auto'):
+    """Match a received payment to a remittance email."""
+    conn = _get_conn()
+    now = _now()
+    conn.execute("""
+        UPDATE received_payments SET
+            matched_remittance_email_id = ?,
+            match_confidence = ?,
+            match_method = ?,
+            match_status = 'matched',
+            matched_at = ?,
+            matched_by = ?
+        WHERE id = ?
+    """, (email_id, confidence, method, now, matched_by, payment_id))
+    conn.commit()
+    conn.close()
+
+
+def unmatch_received_payment(payment_id: str):
+    """Undo a received payment match."""
+    conn = _get_conn()
+    now = _now()
+    # Get the payment to find linked NVCs
+    rp = conn.execute("SELECT matched_remittance_email_id FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
+    
+    conn.execute("""
+        UPDATE received_payments SET
+            matched_remittance_email_id = NULL,
+            match_confidence = NULL,
+            match_method = NULL,
+            match_status = 'unmatched',
+            matched_at = NULL,
+            matched_by = NULL
+        WHERE id = ?
+    """, (payment_id,))
+    
+    # Clear received_payment linkage from reconciliation_records
+    conn.execute("""
+        UPDATE reconciliation_records SET
+            received_payment_id = NULL,
+            received_payment_amount = NULL,
+            received_payment_date = NULL,
+            last_updated_at = ?
+        WHERE received_payment_id = ?
+    """, (now, payment_id))
+    
+    conn.commit()
+    conn.close()
+
+
 def recalculate_match_status(nvc_code: str):
-    """Recalculate match_status and match_flags for a given NVC code."""
+    """Recalculate match_status and match_flags for 4-way matching.
+    
+    Legs: remittance, invoice, funding (received_payment), payment (outbound).
+    """
     conn = _get_conn()
     row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
     if not row:
@@ -170,51 +390,54 @@ def recalculate_match_status(nvc_code: str):
     row = dict(row)
     has_remittance = row['remittance_amount'] is not None
     has_invoice = row['invoice_amount'] is not None
-    has_funding = row['funding_amount'] is not None
+    has_funding = row.get('received_payment_id') is not None  # Leg 3: inbound USD
+    has_payment = row.get('payment_amount') is not None       # Leg 4: outbound to contractor
     flags = []
 
     # If resolved, keep resolved status
     if row['resolved_at']:
         status = 'resolved'
-    elif has_remittance and has_invoice and has_funding:
-        # Check all 3 match
-        if _amounts_match(row['remittance_amount'], row['invoice_amount']) and \
-           _amounts_match(row['remittance_amount'], row['funding_amount']):
-            status = 'full_3way'
+    elif has_remittance and has_invoice and has_funding and has_payment:
+        # All 4 legs present
+        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+            status = 'full_4way'
         else:
-            status = 'mismatch'
+            status = 'amount_mismatch'
             if not _amounts_match(row['remittance_amount'], row['invoice_amount']):
                 flags.append('remittance_invoice_mismatch')
-            if not _amounts_match(row['remittance_amount'], row['funding_amount']):
-                flags.append('remittance_funding_mismatch')
+    elif has_remittance and has_invoice and has_funding:
+        # 3 legs: funded but not yet paid out
+        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+            status = '3way_awaiting_payment'
+        else:
+            status = 'amount_mismatch'
+            flags.append('remittance_invoice_mismatch')
+    elif has_remittance and has_invoice and has_payment:
+        # 3 legs: paid out but no inbound funding record
+        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+            status = '3way_no_funding'
+        else:
+            status = 'amount_mismatch'
+            flags.append('remittance_invoice_mismatch')
     elif has_remittance and has_invoice:
         if _amounts_match(row['remittance_amount'], row['invoice_amount']):
-            status = 'partial_2way'
+            status = '2way_matched'
         else:
-            status = 'mismatch'
+            status = 'amount_mismatch'
             flags.append('amount_mismatch')
-    elif has_remittance and has_funding:
-        if _amounts_match(row['remittance_amount'], row['funding_amount']):
-            status = 'partial_2way'
-        else:
-            status = 'mismatch'
-            flags.append('amount_mismatch')
-    elif has_invoice and has_funding:
-        if _amounts_match(row['invoice_amount'], row['funding_amount']):
-            status = 'partial_2way'
-        else:
-            status = 'mismatch'
-            flags.append('invoice_funding_mismatch')
+    elif has_invoice and has_payment:
+        status = 'invoice_payment_only'
         flags.append('missing_remittance')
     elif has_remittance:
         status = 'remittance_only'
         flags.append('missing_invoice')
-        flags.append('missing_funding')
     elif has_invoice:
         status = 'invoice_only'
         flags.append('missing_remittance')
-        flags.append('missing_funding')
-        flags.append('missing_funding')
+    elif has_payment:
+        status = 'payment_only'
+        flags.append('missing_remittance')
+        flags.append('missing_invoice')
     else:
         status = 'unmatched'
 
@@ -454,6 +677,48 @@ def _migrate_add_flag_columns():
         conn.close()
 
 
+def _migrate_4way_columns():
+    """Rename funding_* → payment_* and add received_payment_* columns for 4-way matching."""
+    conn = _get_conn()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+
+        # Rename funding_* → payment_* (outbound to contractor)
+        renames = {
+            'funding_amount': 'payment_amount',
+            'funding_account_id': 'payment_account_id',
+            'funding_date': 'payment_date',
+            'funding_currency': 'payment_currency',
+            'funding_status': 'payment_status',
+            'funding_recipient': 'payment_recipient',
+            'funding_recipient_country': 'payment_recipient_country',
+        }
+        for old_col, new_col in renames.items():
+            if old_col in cols and new_col not in cols:
+                conn.execute(f"ALTER TABLE reconciliation_records RENAME COLUMN {old_col} TO {new_col}")
+                logger.info("Renamed column %s → %s", old_col, new_col)
+
+        # Re-read columns after renames
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+
+        # Add received payment columns (incoming funding)
+        new_cols = {
+            'received_payment_id': 'TEXT',
+            'received_payment_amount': 'REAL',
+            'received_payment_date': 'TEXT',
+        }
+        for col, dtype in new_cols.items():
+            if col not in cols:
+                conn.execute(f"ALTER TABLE reconciliation_records ADD COLUMN {col} {dtype}")
+                logger.info("Added column %s", col)
+
+        conn.commit()
+    except Exception as e:
+        logger.warning("Migration 4-way columns: %s", e)
+    finally:
+        conn.close()
+
+
 def get_recon_records_queue(
     status: Optional[str] = None,
     tenant: Optional[str] = None,
@@ -522,3 +787,4 @@ def get_recon_records_queue(
 # Initialize on import
 init_recon_db()
 _migrate_add_flag_columns()
+_migrate_4way_columns()

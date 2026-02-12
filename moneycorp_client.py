@@ -127,6 +127,68 @@ def get_all_omc_payments():
     return all_payments
 
 
+def get_account_received_payments(account_id: str):
+    """Get received payments for a specific account."""
+    resp = requests.get(f'{BASE_URL}/accounts/{account_id}/receivedPayments', headers=_headers(), timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_payer_from_info(info: str) -> str:
+    """Extract payer name from infoToAccountOwner field.
+    
+    Examples:
+      "THE SCIENOMICS DES:ACH10030 ID:..." → "THE SCIENOMICS"
+      "BBDO USA LLC WIRE TYPE:WIRE IN..." → "BBDO USA LLC"
+    """
+    if not info:
+        return ''
+    # Take first line, strip whitespace
+    line = info.split('\r')[0].split('\n')[0].strip()
+    # Cut at common delimiters
+    for delim in ['DES:', 'WIRE TYPE:', 'ID:', 'TRX']:
+        idx = line.find(delim)
+        if idx > 0:
+            line = line[:idx].strip()
+            break
+    return line.strip()
+
+
+def get_all_omc_received_payments():
+    """Get all received payments across all OMC sub-accounts."""
+    omc_accounts = get_omc_accounts()
+    all_received = []
+    
+    for acc in omc_accounts:
+        acc_id = acc['id']
+        acc_name = acc['attributes']['accountName']
+        try:
+            resp = get_account_received_payments(acc_id)
+            payments = resp.get('data', [])
+            for p in payments:
+                attrs = p.get('attributes', {})
+                payer = parse_payer_from_info(attrs.get('infoToAccountOwner', ''))
+                all_received.append({
+                    'id': p['id'],
+                    'account_id': acc_id,
+                    'account_name': acc_name,
+                    'amount': float(attrs.get('amount', 0)),
+                    'currency': attrs.get('currency', 'USD'),
+                    'payment_date': attrs.get('paymentDate', ''),
+                    'payment_status': attrs.get('paymentStatus', ''),
+                    'payer_name': payer,
+                    'raw_info': attrs.get('infoToAccountOwner', ''),
+                    'msl_reference': attrs.get('mslReference1', ''),
+                    'created_on': attrs.get('createdOn', ''),
+                })
+            logger.info("MoneyCorp: %d received payments from %s (account %s)", len(payments), acc_name, acc_id)
+        except Exception as e:
+            logger.error("MoneyCorp: failed to get received payments for %s: %s", acc_name, e)
+    
+    logger.info("MoneyCorp: total %d received payments across %d OMC accounts", len(all_received), len(omc_accounts))
+    return all_received
+
+
 if __name__ == '__main__':
     print("Authenticating with MoneyCorp...")
     token = authenticate()

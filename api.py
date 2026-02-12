@@ -40,6 +40,9 @@ import recon_db
 from recon_db import (
     get_recon_records, get_recon_record, get_recon_summary,
     get_sync_state, get_cached_payruns, get_cached_invoices,
+    get_received_payments, get_received_payment, get_received_payments_summary,
+    match_received_payment, unmatch_received_payment,
+    link_received_payment_to_nvc,
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
@@ -647,6 +650,138 @@ def recon_queue(
 
 
 
+# ── Received Payments (Leg 3 — Inbound Funding) ─────────────────────────
+
+@app.get("/api/received-payments")
+def list_received_payments(
+    account_id: Optional[str] = Query(None),
+    match_status: Optional[str] = Query(None),
+    payer: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """List received payments with filters."""
+    records, total = get_received_payments(
+        account_id=account_id, match_status=match_status, payer=payer,
+        date_from=date_from, date_to=date_to, limit=limit, offset=offset
+    )
+    return serialize({"records": records, "total": total})
+
+
+@app.get("/api/received-payments/summary")
+def received_payments_summary():
+    """Get received payments summary."""
+    return serialize(get_received_payments_summary())
+
+
+@app.get("/api/received-payments/{payment_id}")
+def received_payment_detail(payment_id: str):
+    """Get single received payment detail."""
+    record = get_received_payment(payment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Received payment not found")
+    return serialize(record)
+
+
+class MatchReceivedPaymentRequest(BaseModel):
+    email_id: str
+    confidence: float = 1.0
+    method: str = "manual"
+
+
+@app.post("/api/received-payments/{payment_id}/match")
+def match_received_payment_endpoint(payment_id: str, req: MatchReceivedPaymentRequest):
+    """Manually match a received payment to a remittance email."""
+    rp = get_received_payment(payment_id)
+    if not rp:
+        raise HTTPException(status_code=404, detail="Received payment not found")
+
+    match_received_payment(payment_id, req.email_id, req.confidence, req.method, 'manual')
+
+    # Cascade to NVC codes
+    import sqlite3
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    nvc_rows = conn.execute(
+        "SELECT nvc_code FROM reconciliation_records WHERE remittance_email_id = ?",
+        (req.email_id,)
+    ).fetchall()
+    conn.close()
+
+    for nr in nvc_rows:
+        link_received_payment_to_nvc(
+            nr['nvc_code'], payment_id, rp['amount'], rp.get('payment_date', '')
+        )
+
+    return {"success": True, "linked_nvcs": len(nvc_rows)}
+
+
+@app.post("/api/received-payments/{payment_id}/unmatch")
+def unmatch_received_payment_endpoint(payment_id: str):
+    """Undo a received payment match."""
+    rp = get_received_payment(payment_id)
+    if not rp:
+        raise HTTPException(status_code=404, detail="Received payment not found")
+    unmatch_received_payment(payment_id)
+    return {"success": True}
+
+
+@app.get("/api/received-payments/suggestions/{payment_id}")
+def received_payment_suggestions(payment_id: str):
+    """Get suggested remittance email matches for a received payment."""
+    rp = get_received_payment(payment_id)
+    if not rp:
+        raise HTTPException(status_code=404, detail="Received payment not found")
+
+    from sync_service import _payer_matches_agency
+    import sqlite3
+    conn = sqlite3.connect(str(recon_db.RECON_DB_PATH))
+    conn.row_factory = sqlite3.Row
+
+    # Aggregate email totals
+    email_rows = conn.execute("""
+        SELECT remittance_email_id,
+               SUM(remittance_amount) as total_amount,
+               MIN(remittance_date) as date,
+               COUNT(*) as nvc_count
+        FROM reconciliation_records
+        WHERE remittance_email_id IS NOT NULL
+        GROUP BY remittance_email_id
+    """).fetchall()
+    conn.close()
+
+    suggestions = []
+    for er in email_rows:
+        er = dict(er)
+        score = 0.0
+        rp_amt = rp['amount']
+        em_amt = er['total_amount']
+        if em_amt and rp_amt:
+            diff_pct = abs(rp_amt - em_amt) / max(rp_amt, em_amt) if max(rp_amt, em_amt) > 0 else 1
+            if diff_pct <= 0.001:
+                score += 0.5
+            elif diff_pct <= 0.01:
+                score += 0.35
+            elif diff_pct <= 0.05:
+                score += 0.15
+            elif diff_pct <= 0.1:
+                score += 0.05
+
+        if score > 0:
+            suggestions.append({
+                'email_id': er['remittance_email_id'],
+                'total_amount': er['total_amount'],
+                'date': er['date'],
+                'nvc_count': er['nvc_count'],
+                'score': round(score, 3),
+            })
+
+    suggestions.sort(key=lambda x: x['score'], reverse=True)
+    return serialize({"payment_id": payment_id, "suggestions": suggestions[:10]})
+
+
 # ── Sync Control ─────────────────────────────────────────────────────────
 
 @app.post("/api/sync/trigger")
@@ -791,18 +926,19 @@ def cross_search(
         results = [{"source": "invoice", **dict(r)} for r in rows]
 
     elif source == "funding":
+        # Search outbound payments (Leg 4, renamed from funding)
         conn = __import__('sqlite3').connect(str(recon_db.RECON_DB_PATH))
         conn.row_factory = __import__('sqlite3').Row
-        conditions = ["funding_amount IS NOT NULL"]
+        conditions = ["payment_amount IS NOT NULL"]
         params = []
         if q:
             conditions.append("nvc_code LIKE ?")
             params.append(f"%{q}%")
         if amount_min is not None:
-            conditions.append("funding_amount >= ?")
+            conditions.append("payment_amount >= ?")
             params.append(amount_min)
         if amount_max is not None:
-            conditions.append("funding_amount <= ?")
+            conditions.append("payment_amount <= ?")
             params.append(amount_max)
         where = f"WHERE {' AND '.join(conditions)}"
         rows = conn.execute(
