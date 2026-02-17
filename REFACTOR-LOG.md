@@ -162,6 +162,78 @@ This meant `reconciler.py` was summing "Paid" invoices using `status == 5`, whic
 | `gmail_client.py` | Remove hardcoded email default |
 | `.env.example` | Align var names with code, add new vars |
 
+---
+
+## Phase 3: Reliability & Testing (2026-02-17)
+
+### Task 12: Add retry logic and timeouts to db_client.py
+**Status:** DONE
+**Problem:** SSH tunnel had no retry logic, no timeout on startup, and reset the global socket timeout to `None` after tunnel creation. Direct connections also lacked proper cleanup.
+
+**Changes:**
+- Added `DB_CONNECT_TIMEOUT` and `DB_MAX_RETRIES` env-configurable settings (defaults: 10s, 3 retries)
+- Refactored `get_connection()` into retry wrapper calling `_connect_direct()` / `_connect_via_tunnel()`
+- Exponential backoff on failure (1s, 2s wait between retries)
+- Properly restore socket default timeout instead of resetting to `None`
+- Added `connect_timeout` to SSH tunnel DB connection (was missing)
+- Added `_decimals_to_float()` helper — DRYed up 5x repeated Decimal conversion loop
+
+---
+
+### Task 13: Add retry logic to moneycorp_client.py API calls
+**Status:** DONE
+**Problem:** All API calls had no retry logic — a single timeout or 5xx would fail the entire sync.
+
+**Changes:**
+- Added `_api_call()` wrapper with retry for transient failures (ConnectionError, Timeout, 5xx)
+- Exponential backoff: 1s, 2s between retries
+- `API_TIMEOUT` and `API_MAX_RETRIES` configurable via env vars (defaults: 30s, 3)
+- All 6 API call sites updated to use `_api_call()`
+
+---
+
+### Task 14: Add pytest and expand test coverage
+**Status:** DONE
+**Problem:** Only 1 test file existed (4 CSV parser tests). No tests for the matching engine or reconciliation DB.
+
+**Changes:**
+- Added `tests/conftest.py` with env var setup for isolated testing
+- Added `tests/test_matcher.py` — 14 tests covering:
+  - Exact match, amount mismatch, within-tolerance, not-in-db, empty remittance
+  - Status override for Rejected/Cancelled payments
+  - Mixed results with multiple lines, summary property
+- Added `tests/test_recon_db.py` — 14 tests covering:
+  - Upsert operations and status calculation (2-way match, mismatch, tolerance)
+  - All new helper functions: agency_stats, nvc_codes_for_email, email_remittance_totals, flag, notes, search, queue, suggestions
+  - Summary aggregation
+- Updated existing `test_csv_parser.py` to use conftest.py instead of sys.path hack
+- Total: **28 tests, all passing** (0.28s)
+
+---
+
+### Task 15: Update NEXT-STEPS.md
+**Status:** DONE
+- Rewrote to reflect current state (4-way recon, MoneyCorp, background sync, Docker, Next.js)
+- Organized remaining work by priority (High/Medium/Low)
+- Identified Flask retirement, LDN GSS OCR, and auth as top priorities
+
+---
+
+## Phase 3 Files Modified
+
+| File | Changes |
+|------|---------|
+| `db_client.py` | Retry logic, timeouts, `_decimals_to_float()` DRY helper |
+| `moneycorp_client.py` | `_api_call()` retry wrapper, all endpoints updated |
+| `tests/conftest.py` | NEW: shared test config |
+| `tests/test_matcher.py` | NEW: 14 tests for matching engine |
+| `tests/test_recon_db.py` | NEW: 14 tests for recon DB helpers |
+| `tests/test_csv_parser.py` | Removed sys.path hack |
+| `requirements.txt` | Added pytest dev dependency comment |
+| `NEXT-STEPS.md` | Full rewrite reflecting current state |
+
+---
+
 ## Phase 2 Files Modified
 
 | File | Changes |

@@ -1,6 +1,7 @@
 """Database client for Worksuite aggregate DB (via SSH tunnel)."""
 import logging
 import os
+import time
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import List, Dict, Optional
@@ -46,33 +47,66 @@ OMC_TENANTS = [
 
 SSH_TUNNEL_DISABLED = os.getenv('SSH_TUNNEL_DISABLED', '').lower() in ('true', '1', 'yes')
 
+DB_CONNECT_TIMEOUT = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
+DB_MAX_RETRIES = int(os.getenv('DB_MAX_RETRIES', '3'))
+
+
+def _decimals_to_float(row: dict) -> dict:
+    """Convert all Decimal values in a row dict to float for JSON serialization."""
+    return {k: float(v) if isinstance(v, Decimal) else v for k, v in row.items()}
+
 
 @contextmanager
 def get_connection():
-    """Get a DB connection — direct or via SSH tunnel."""
-    if SSH_TUNNEL_DISABLED:
-        # Direct connection (e.g. through autossh tunnel on host)
-        logger.info("Connecting directly to %s:%s/%s (SSH tunnel disabled)", DB_HOST, DB_PORT, DB_NAME)
-        try:
-            conn = psycopg2.connect(
-                host=DB_HOST,
-                port=DB_PORT,
-                database=DB_NAME,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                connect_timeout=10,
-            )
-            logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
-            yield conn
-            conn.close()
-        except Exception as e:
-            logger.error("Database connection failed: %s", e, exc_info=True)
-            raise
-        return
+    """Get a DB connection — direct or via SSH tunnel.
 
-    # SSH tunnel mode (local dev)
+    Retries up to DB_MAX_RETRIES times with exponential backoff.
+    """
+    last_error = None
+    for attempt in range(1, DB_MAX_RETRIES + 1):
+        try:
+            if SSH_TUNNEL_DISABLED:
+                yield from _connect_direct()
+            else:
+                yield from _connect_via_tunnel()
+            return
+        except Exception as e:
+            last_error = e
+            if attempt < DB_MAX_RETRIES:
+                wait = 2 ** (attempt - 1)  # 1s, 2s
+                logger.warning("DB connection attempt %d/%d failed: %s — retrying in %ds",
+                               attempt, DB_MAX_RETRIES, e, wait)
+                time.sleep(wait)
+            else:
+                logger.error("DB connection failed after %d attempts: %s", DB_MAX_RETRIES, e)
+    raise last_error
+
+
+@contextmanager
+def _connect_direct():
+    """Direct DB connection (e.g. through autossh tunnel on host)."""
+    logger.info("Connecting directly to %s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        connect_timeout=DB_CONNECT_TIMEOUT,
+    )
+    try:
+        logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def _connect_via_tunnel():
+    """DB connection via SSH tunnel (local dev)."""
     import socket
-    socket.setdefaulttimeout(10)
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(DB_CONNECT_TIMEOUT)
     logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)
     try:
         tunnel = SSHTunnelForwarder(
@@ -83,8 +117,10 @@ def get_connection():
             set_keepalive=10,
         )
         tunnel.start()
-    finally:
-        socket.setdefaulttimeout(None)
+    except Exception:
+        socket.setdefaulttimeout(old_timeout)
+        raise
+    socket.setdefaulttimeout(old_timeout)
     logger.info("SSH tunnel established on local port %d", tunnel.local_bind_port)
     try:
         conn = psycopg2.connect(
@@ -93,13 +129,13 @@ def get_connection():
             database=DB_NAME,
             user=DB_USER,
             password=DB_PASSWORD,
+            connect_timeout=DB_CONNECT_TIMEOUT,
         )
-        logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
-        yield conn
-        conn.close()
-    except Exception as e:
-        logger.error("Database connection failed: %s", e, exc_info=True)
-        raise
+        try:
+            logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
+            yield conn
+        finally:
+            conn.close()
     finally:
         tunnel.stop()
         logger.info("SSH tunnel closed")
@@ -148,11 +184,7 @@ def lookup_payments_by_nvc(nvc_codes: List[str]) -> Dict[str, dict]:
         
         results = {}
         for row in cur.fetchall():
-            row = dict(row)
-            # Convert Decimal for JSON serialization
-            for k, v in row.items():
-                if isinstance(v, Decimal):
-                    row[k] = float(v)
+            row = _decimals_to_float(dict(row))
             results[row['nvc_code']] = row
         
         found = len(results)
@@ -195,14 +227,7 @@ def get_omc_payments(days_back=60, status=None) -> List[dict]:
         query += " ORDER BY p.created_at DESC"
         cur.execute(query, params)
         
-        results = []
-        for row in cur.fetchall():
-            row = dict(row)
-            for k, v in row.items():
-                if isinstance(v, Decimal):
-                    row[k] = float(v)
-            results.append(row)
-        return results
+        return [_decimals_to_float(dict(row)) for row in cur.fetchall()]
 
 
 def get_omc_payruns(days_back=60) -> List[dict]:
@@ -224,14 +249,7 @@ def get_omc_payruns(days_back=60) -> List[dict]:
             ORDER BY pr.created_at DESC
         """, (OMC_TENANTS, days_back))
         
-        results = []
-        for row in cur.fetchall():
-            row = dict(row)
-            for k, v in row.items():
-                if isinstance(v, Decimal):
-                    row[k] = float(v)
-            results.append(row)
-        return results
+        return [_decimals_to_float(dict(row)) for row in cur.fetchall()]
 
 
 def get_moneycorp_subaccounts() -> List[dict]:
@@ -249,14 +267,7 @@ def get_moneycorp_subaccounts() -> List[dict]:
             ORDER BY tenant, currency, oper_fetch_date DESC
         """, (OMC_TENANTS,))
         
-        results = []
-        for row in cur.fetchall():
-            row = dict(row)
-            for k, v in row.items():
-                if isinstance(v, Decimal):
-                    row[k] = float(v)
-            results.append(row)
-        return results
+        return [_decimals_to_float(dict(row)) for row in cur.fetchall()]
 
 
 def get_tenant_funding_config() -> List[dict]:
@@ -270,14 +281,7 @@ def get_tenant_funding_config() -> List[dict]:
             ORDER BY tenant
         """, (OMC_TENANTS,))
         
-        results = []
-        for row in cur.fetchall():
-            row = dict(row)
-            for k, v in row.items():
-                if isinstance(v, Decimal):
-                    row[k] = float(v)
-            results.append(row)
-        return results
+        return [_decimals_to_float(dict(row)) for row in cur.fetchall()]
 
 
 # Payment status codes

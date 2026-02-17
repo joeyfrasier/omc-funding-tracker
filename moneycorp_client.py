@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import requests
+from requests.exceptions import ConnectionError, Timeout
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,20 +14,51 @@ BASE_URL = os.getenv('MONEYCORP_API_URL', 'https://corpapi.moneycorp.com')
 LOGIN_ID = os.getenv('MONEYCORP_LOGIN_ID', 'ShortlistApi')
 API_KEY = os.getenv('MONEYCORP_API_KEY', '')
 
+API_TIMEOUT = int(os.getenv('MONEYCORP_API_TIMEOUT', '30'))
+API_MAX_RETRIES = int(os.getenv('MONEYCORP_API_RETRIES', '3'))
+
 _token = None
 _token_expiry = 0
+
+
+def _api_call(method: str, url: str, **kwargs):
+    """Make an API call with retry logic for transient failures."""
+    kwargs.setdefault('timeout', API_TIMEOUT)
+    last_error = None
+    for attempt in range(1, API_MAX_RETRIES + 1):
+        try:
+            resp = requests.request(method, url, **kwargs)
+            # Retry on 5xx server errors
+            if resp.status_code >= 500 and attempt < API_MAX_RETRIES:
+                logger.warning("MoneyCorp API %s %s returned %d — retry %d/%d",
+                               method, url, resp.status_code, attempt, API_MAX_RETRIES)
+                time.sleep(2 ** (attempt - 1))
+                continue
+            resp.raise_for_status()
+            return resp
+        except (ConnectionError, Timeout) as e:
+            last_error = e
+            if attempt < API_MAX_RETRIES:
+                wait = 2 ** (attempt - 1)
+                logger.warning("MoneyCorp API %s %s failed: %s — retry %d/%d in %ds",
+                               method, url, e, attempt, API_MAX_RETRIES, wait)
+                time.sleep(wait)
+            else:
+                logger.error("MoneyCorp API %s %s failed after %d attempts: %s",
+                             method, url, API_MAX_RETRIES, e)
+                raise
+    raise last_error
 
 
 def authenticate():
     """Get fresh JWT token from MoneyCorp."""
     global _token, _token_expiry
-    
+
     logger.info("Authenticating with MoneyCorp API at %s (login: %s)", BASE_URL, LOGIN_ID)
-    resp = requests.post(f'{BASE_URL}/login', json={
+    resp = _api_call('POST', f'{BASE_URL}/login', json={
         'loginId': LOGIN_ID,
         'apiKey': API_KEY,
-    }, timeout=30)
-    resp.raise_for_status()
+    })
     data = resp.json()
     _token = data.get('token') or data.get('access_token') or (data.get('data', {}) or {}).get('accessToken')
     # Token expires in 900s (15 min), refresh at 800s
@@ -49,23 +81,17 @@ def _headers():
 
 def get_accounts():
     """List all accounts."""
-    resp = requests.get(f'{BASE_URL}/accounts', headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _api_call('GET', f'{BASE_URL}/accounts', headers=_headers()).json()
 
 
 def get_account_payments(account_id: str):
     """Get payments for a specific account."""
-    resp = requests.get(f'{BASE_URL}/accounts/{account_id}/payments', headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _api_call('GET', f'{BASE_URL}/accounts/{account_id}/payments', headers=_headers()).json()
 
 
 def get_account_balances(account_id: str):
     """Get balances for a specific account."""
-    resp = requests.get(f'{BASE_URL}/accounts/{account_id}/balances', headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _api_call('GET', f'{BASE_URL}/accounts/{account_id}/balances', headers=_headers()).json()
 
 
 def get_omc_accounts():
@@ -129,9 +155,7 @@ def get_all_omc_payments():
 
 def get_account_received_payments(account_id: str):
     """Get received payments for a specific account."""
-    resp = requests.get(f'{BASE_URL}/accounts/{account_id}/receivedPayments', headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _api_call('GET', f'{BASE_URL}/accounts/{account_id}/receivedPayments', headers=_headers()).json()
 
 
 def parse_payer_from_info(info: str) -> str:

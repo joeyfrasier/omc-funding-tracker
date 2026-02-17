@@ -1,6 +1,4 @@
 """Tests for CSV parser."""
-import sys
-sys.path.insert(0, '..')
 from decimal import Decimal
 from csv_parser import parse_csv, parse_amount
 
