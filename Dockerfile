@@ -13,9 +13,9 @@ RUN pnpm build
 FROM python:3.12-slim
 WORKDIR /app
 
-# System deps (use Node 22 from nodesource instead of ancient Debian nodejs)
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev curl \
+    libpq-dev curl bash \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
