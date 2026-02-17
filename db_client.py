@@ -13,13 +13,20 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-DB_HOST = os.getenv('DB_HOST', 'aggregate.ctq4nnj79yij.eu-west-1.rds.amazonaws.com')
-DB_PORT = int(os.getenv('DB_PORT', 5432))
-DB_NAME = os.getenv('DB_NAME', 'production')
-DB_USER = os.getenv('DB_USER', 'customersuccess')
+def _require_env(name: str) -> str:
+    """Get a required environment variable or raise."""
+    val = os.getenv(name)
+    if not val:
+        raise RuntimeError(f"Required environment variable {name} is not set")
+    return val
+
+DB_HOST = _require_env('DB_HOST')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
+DB_NAME = _require_env('DB_NAME')
+DB_USER = _require_env('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD', '')
-SSH_BASTION = os.getenv('SSH_BASTION_HOST', '34.241.37.218')
-SSH_KEY = os.getenv('SSH_KEY_PATH', '/Users/joey/.ssh/db-bastion.pem')
+SSH_BASTION = os.getenv('SSH_BASTION_HOST', '')
+SSH_KEY = os.getenv('SSH_KEY_PATH', '')
 
 # Omnicom tenant patterns
 OMC_TENANTS = [

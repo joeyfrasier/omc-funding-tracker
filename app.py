@@ -389,4 +389,4 @@ if __name__ == '__main__':
     import os
     from werkzeug.serving import WSGIRequestHandler
     logger.info("Starting Worksuite OMC Funding Reconciliation Dashboard on http://0.0.0.0:8501")
-    app.run(host='127.0.0.1', port=int(os.environ.get('PORT', 8501)), debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8501)), debug=False, use_reloader=False)

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'service-account.json')
-IMPERSONATE_USER = os.getenv('GMAIL_IMPERSONATE', 'zoe.merkle@worksuite.com')
+IMPERSONATE_USER = os.getenv('GMAIL_IMPERSONATE', '')
 PROCESSED_FILE = Path('data/processed_emails.json')
 
 # Email source queries

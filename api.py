@@ -80,9 +80,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import os as _os
+_cors_origins = _os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -977,7 +979,7 @@ def recon_suggestions(nvc_code: str):
     for amt_field, src_label in [
         ('remittance_amount', 'remittance'),
         ('invoice_amount', 'invoice'),
-        ('funding_amount', 'funding'),
+        ('payment_amount', 'payment'),
     ]:
         amt = record.get(amt_field)
         if amt is None:
@@ -988,7 +990,7 @@ def recon_suggestions(nvc_code: str):
         for other_field, other_label in [
             ('remittance_amount', 'remittance'),
             ('invoice_amount', 'invoice'),
-            ('funding_amount', 'funding'),
+            ('payment_amount', 'payment'),
         ]:
             if other_label == src_label:
                 continue
@@ -1073,10 +1075,10 @@ def recon_associate(req: AssociateRequest):
             donor.get('invoice_status', ''), donor.get('invoice_tenant', ''),
             donor.get('invoice_payrun_ref', ''), donor.get('invoice_currency', '')
         )
-    elif req.source == "funding" and donor.get('funding_amount') is not None:
-        recon_db.upsert_from_funding(
-            req.nvc_code, donor['funding_amount'],
-            donor.get('funding_account_id', ''), donor.get('funding_date', '')
+    elif req.source == "funding" and donor.get('payment_amount') is not None:
+        recon_db.upsert_from_payment(
+            req.nvc_code, donor['payment_amount'],
+            donor.get('payment_account_id', ''), donor.get('payment_date', '')
         )
     else:
         raise HTTPException(status_code=400, detail=f"No {req.source} data in {req.associate_with}")

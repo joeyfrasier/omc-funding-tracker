@@ -16,7 +16,6 @@
 - Gmail impersonates `zoe.merkle@worksuite.com` (may want to switch to `joey.frasier@worksuite.com` or a shared mailbox)
 - LDN GSS emails are image-only PDFs — flagged for manual review, no auto-parsing
 - 62 emails already processed; new runs return 0 unless using "re-run" mode
-- MoneyCorp API token in `.env` is likely expired (JWT from 2021)
 - No persistent storage — results lost on restart
 - No scheduled runs — manual trigger only
 
@@ -71,7 +70,6 @@
 
 | Blocker | Status | Owner |
 |---------|--------|-------|
-| MoneyCorp API token expired | 🔴 Need refresh | Joey/Ops |
 | LDN GSS image parsing | 🟡 Needs OCR solution | Engineering |
 | Gmail impersonation scope | 🟢 Working (zoe.merkle) | — |
 | DB credentials | 🟢 Working | — |

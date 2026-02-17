@@ -41,16 +41,8 @@ TENANT_MONEYCORP_MAP = {
     'omnicom.worksuite.com': {'mc_id': '859149', 'agency': 'Specialty Marketing'},
 }
 
-# Payment status codes in Worksuite
-PAYMENT_STATUS = {
-    0: 'Draft',
-    1: 'Submitted',
-    2: 'Approved',
-    3: 'Processing',
-    4: 'In Flight',
-    5: 'Paid',
-    6: 'Rejected',
-}
+# Import canonical payment status codes from db_client
+from db_client import PAYMENT_STATUS, status_label
 
 
 def fetch_invoices(days_back: int = 90) -> list[dict]:
@@ -80,7 +72,7 @@ def fetch_invoices(days_back: int = 90) -> list[dict]:
     for row in rows:
         inv = dict(zip(columns, row))
         inv['total_amount'] = float(inv['total_amount']) if inv['total_amount'] else 0
-        inv['status_label'] = PAYMENT_STATUS.get(inv['status'], f'Unknown({inv["status"]})')
+        inv['status_label'] = status_label(inv['status'])
         inv['agency'] = TENANT_MONEYCORP_MAP.get(inv['tenant'], {}).get('agency', 'Unknown')
         inv['mc_account_id'] = TENANT_MONEYCORP_MAP.get(inv['tenant'], {}).get('mc_id')
         # Convert datetimes to strings for JSON
@@ -253,9 +245,9 @@ def build_reconciliation_report(days_back: int = 90) -> dict:
         mc = mc_data.get(tenant, {})
 
         total_invoiced = sum(i['total_amount'] for i in tenant_invoices)
-        total_paid = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 5)
-        total_approved = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 2)
-        total_processing = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 3)
+        total_paid = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 4)       # Paid
+        total_approved = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 1)  # Approved
+        total_processing = sum(i['total_amount'] for i in tenant_invoices if i['status'] == 2)  # Processing
 
         summary = {
             'agency': agency,

@@ -30,6 +30,7 @@ class ReconciliationReport:
     matched_count: int = 0
     mismatched_count: int = 0
     not_found_count: int = 0
+    status_issue_count: int = 0
     
     @property
     def summary(self):
@@ -39,6 +40,7 @@ class ReconciliationReport:
             'matched': self.matched_count,
             'mismatched': self.mismatched_count,
             'not_found': self.not_found_count,
+            'status_issues': self.status_issue_count,
             'match_rate': f"{self.matched_count/total*100:.1f}%" if total else "N/A",
             'remittance_total': str(self.remittance.payment_amount),
             'agency': self.remittance.agency,
@@ -102,7 +104,14 @@ def reconcile(remittance: Remittance, tolerance: Decimal = Decimal('0.01')) -> R
             # Check for concerning statuses
             db_status = db_rec.get('status', -1)
             if db_status in (5, 6):  # Rejected or Cancelled
+                # Adjust counters: undo the matched/mismatched increment
+                if status == 'matched':
+                    report.matched_count -= 1
+                    report.total_matched_amount -= db_amount or 0
+                elif status == 'amount_mismatch':
+                    report.mismatched_count -= 1
                 status = 'status_issue'
+                report.status_issue_count += 1
                 notes += f' ⚠️ Payment is {status_label(db_status)}!'
             
             result = MatchResult(
