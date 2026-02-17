@@ -9,6 +9,7 @@
 import json
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Any
@@ -31,111 +32,114 @@ AGENCY_ALIASES = {
 }
 
 
+@contextmanager
 def _get_conn():
     RECON_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(RECON_DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_recon_db():
     """Create reconciliation tables if they don't exist."""
-    conn = _get_conn()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS reconciliation_records (
-            nvc_code TEXT PRIMARY KEY,
-            remittance_amount REAL,
-            remittance_date TEXT,
-            remittance_source TEXT,
-            remittance_email_id TEXT,
-            invoice_amount REAL,
-            invoice_status TEXT,
-            invoice_tenant TEXT,
-            invoice_payrun_ref TEXT,
-            invoice_currency TEXT,
-            funding_amount REAL,
-            funding_account_id TEXT,
-            funding_date TEXT,
-            match_status TEXT DEFAULT 'unmatched',
-            match_flags TEXT DEFAULT '[]',
-            first_seen_at TEXT NOT NULL,
-            last_updated_at TEXT NOT NULL,
-            resolved_at TEXT,
-            resolved_by TEXT,
-            notes TEXT,
-            flag TEXT,
-            flag_notes TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_recon_status ON reconciliation_records(match_status);
-        CREATE INDEX IF NOT EXISTS idx_recon_tenant ON reconciliation_records(invoice_tenant);
+    with _get_conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS reconciliation_records (
+                nvc_code TEXT PRIMARY KEY,
+                remittance_amount REAL,
+                remittance_date TEXT,
+                remittance_source TEXT,
+                remittance_email_id TEXT,
+                invoice_amount REAL,
+                invoice_status TEXT,
+                invoice_tenant TEXT,
+                invoice_payrun_ref TEXT,
+                invoice_currency TEXT,
+                funding_amount REAL,
+                funding_account_id TEXT,
+                funding_date TEXT,
+                match_status TEXT DEFAULT 'unmatched',
+                match_flags TEXT DEFAULT '[]',
+                first_seen_at TEXT NOT NULL,
+                last_updated_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolved_by TEXT,
+                notes TEXT,
+                flag TEXT,
+                flag_notes TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_recon_status ON reconciliation_records(match_status);
+            CREATE INDEX IF NOT EXISTS idx_recon_tenant ON reconciliation_records(invoice_tenant);
 
-        CREATE TABLE IF NOT EXISTS sync_state (
-            source TEXT PRIMARY KEY,
-            last_sync_at TEXT,
-            last_count INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'pending'
-        );
+            CREATE TABLE IF NOT EXISTS sync_state (
+                source TEXT PRIMARY KEY,
+                last_sync_at TEXT,
+                last_count INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'pending'
+            );
 
-        CREATE TABLE IF NOT EXISTS cached_payruns (
-            id INTEGER PRIMARY KEY,
-            reference TEXT,
-            tenant TEXT,
-            status INTEGER,
-            payment_count INTEGER,
-            total_amount REAL,
-            created_at TEXT,
-            fetched_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_payruns_tenant ON cached_payruns(tenant);
+            CREATE TABLE IF NOT EXISTS cached_payruns (
+                id INTEGER PRIMARY KEY,
+                reference TEXT,
+                tenant TEXT,
+                status INTEGER,
+                payment_count INTEGER,
+                total_amount REAL,
+                created_at TEXT,
+                fetched_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_payruns_tenant ON cached_payruns(tenant);
 
-        CREATE TABLE IF NOT EXISTS cached_invoices (
-            nvc_code TEXT PRIMARY KEY,
-            payment_id INTEGER,
-            invoice_number TEXT,
-            total_amount REAL,
-            currency TEXT,
-            status INTEGER,
-            status_label TEXT,
-            paid_date TEXT,
-            processing_date TEXT,
-            in_flight_date TEXT,
-            tenant TEXT,
-            payrun_id TEXT,
-            created_at TEXT,
-            fetched_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON cached_invoices(tenant);
-        CREATE INDEX IF NOT EXISTS idx_invoices_status ON cached_invoices(status_label);
+            CREATE TABLE IF NOT EXISTS cached_invoices (
+                nvc_code TEXT PRIMARY KEY,
+                payment_id INTEGER,
+                invoice_number TEXT,
+                total_amount REAL,
+                currency TEXT,
+                status INTEGER,
+                status_label TEXT,
+                paid_date TEXT,
+                processing_date TEXT,
+                in_flight_date TEXT,
+                tenant TEXT,
+                payrun_id TEXT,
+                created_at TEXT,
+                fetched_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON cached_invoices(tenant);
+            CREATE INDEX IF NOT EXISTS idx_invoices_status ON cached_invoices(status_label);
 
-        CREATE TABLE IF NOT EXISTS received_payments (
-            id TEXT PRIMARY KEY,
-            account_id TEXT NOT NULL,
-            account_name TEXT,
-            amount REAL NOT NULL,
-            currency TEXT DEFAULT 'USD',
-            payment_date TEXT,
-            payment_status TEXT,
-            payer_name TEXT,
-            raw_info TEXT,
-            msl_reference TEXT,
-            created_on TEXT,
-            matched_remittance_email_id TEXT,
-            match_confidence REAL,
-            match_method TEXT,
-            match_status TEXT DEFAULT 'unmatched',
-            matched_at TEXT,
-            matched_by TEXT,
-            notes TEXT,
-            fetched_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_rp_account ON received_payments(account_id);
-        CREATE INDEX IF NOT EXISTS idx_rp_status ON received_payments(match_status);
-        CREATE INDEX IF NOT EXISTS idx_rp_date ON received_payments(payment_date);
-        CREATE INDEX IF NOT EXISTS idx_rp_payer ON received_payments(payer_name);
-    """)
-    conn.commit()
-    conn.close()
+            CREATE TABLE IF NOT EXISTS received_payments (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL,
+                account_name TEXT,
+                amount REAL NOT NULL,
+                currency TEXT DEFAULT 'USD',
+                payment_date TEXT,
+                payment_status TEXT,
+                payer_name TEXT,
+                raw_info TEXT,
+                msl_reference TEXT,
+                created_on TEXT,
+                matched_remittance_email_id TEXT,
+                match_confidence REAL,
+                match_method TEXT,
+                match_status TEXT DEFAULT 'unmatched',
+                matched_at TEXT,
+                matched_by TEXT,
+                notes TEXT,
+                fetched_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rp_account ON received_payments(account_id);
+            CREATE INDEX IF NOT EXISTS idx_rp_status ON received_payments(match_status);
+            CREATE INDEX IF NOT EXISTS idx_rp_date ON received_payments(payment_date);
+            CREATE INDEX IF NOT EXISTS idx_rp_payer ON received_payments(payer_name);
+        """)
+        conn.commit()
     logger.info("Reconciliation database initialized at %s", RECON_DB_PATH)
 
 
@@ -145,40 +149,38 @@ def _now():
 
 def upsert_from_remittance(nvc_code: str, amount: float, date: str, source: str, email_id: str):
     """Insert or update remittance leg for an NVC code."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        INSERT INTO reconciliation_records (nvc_code, remittance_amount, remittance_date, remittance_source, remittance_email_id, first_seen_at, last_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(nvc_code) DO UPDATE SET
-            remittance_amount = excluded.remittance_amount,
-            remittance_date = excluded.remittance_date,
-            remittance_source = excluded.remittance_source,
-            remittance_email_id = excluded.remittance_email_id,
-            last_updated_at = ?
-    """, (nvc_code, amount, date, source, email_id, now, now, now))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            INSERT INTO reconciliation_records (nvc_code, remittance_amount, remittance_date, remittance_source, remittance_email_id, first_seen_at, last_updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(nvc_code) DO UPDATE SET
+                remittance_amount = excluded.remittance_amount,
+                remittance_date = excluded.remittance_date,
+                remittance_source = excluded.remittance_source,
+                remittance_email_id = excluded.remittance_email_id,
+                last_updated_at = ?
+        """, (nvc_code, amount, date, source, email_id, now, now, now))
+        conn.commit()
     recalculate_match_status(nvc_code)
 
 
 def upsert_from_invoice(nvc_code: str, amount: float, status: str, tenant: str, payrun_ref: str, currency: str):
     """Insert or update invoice leg for an NVC code."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        INSERT INTO reconciliation_records (nvc_code, invoice_amount, invoice_status, invoice_tenant, invoice_payrun_ref, invoice_currency, first_seen_at, last_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(nvc_code) DO UPDATE SET
-            invoice_amount = excluded.invoice_amount,
-            invoice_status = excluded.invoice_status,
-            invoice_tenant = excluded.invoice_tenant,
-            invoice_payrun_ref = excluded.invoice_payrun_ref,
-            invoice_currency = excluded.invoice_currency,
-            last_updated_at = ?
-    """, (nvc_code, amount, status, tenant, payrun_ref, currency, now, now, now))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            INSERT INTO reconciliation_records (nvc_code, invoice_amount, invoice_status, invoice_tenant, invoice_payrun_ref, invoice_currency, first_seen_at, last_updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(nvc_code) DO UPDATE SET
+                invoice_amount = excluded.invoice_amount,
+                invoice_status = excluded.invoice_status,
+                invoice_tenant = excluded.invoice_tenant,
+                invoice_payrun_ref = excluded.invoice_payrun_ref,
+                invoice_currency = excluded.invoice_currency,
+                last_updated_at = ?
+        """, (nvc_code, amount, status, tenant, payrun_ref, currency, now, now, now))
+        conn.commit()
     recalculate_match_status(nvc_code)
 
 
@@ -195,24 +197,23 @@ def upsert_from_funding(nvc_code: str, amount: float, account_id: str, date: str
 def upsert_from_payment(nvc_code: str, amount: float, account_id: str, date: str,
                          currency: str = '', status: str = '', recipient: str = '', recipient_country: str = ''):
     """Insert or update payment (outbound) leg for an NVC code — Leg 4."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        INSERT INTO reconciliation_records (nvc_code, payment_amount, payment_account_id, payment_date,
-            payment_currency, payment_status, payment_recipient, payment_recipient_country, first_seen_at, last_updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(nvc_code) DO UPDATE SET
-            payment_amount = excluded.payment_amount,
-            payment_account_id = excluded.payment_account_id,
-            payment_date = excluded.payment_date,
-            payment_currency = excluded.payment_currency,
-            payment_status = excluded.payment_status,
-            payment_recipient = excluded.payment_recipient,
-            payment_recipient_country = excluded.payment_recipient_country,
-            last_updated_at = ?
-    """, (nvc_code, amount, account_id, date, currency, status, recipient, recipient_country, now, now, now))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            INSERT INTO reconciliation_records (nvc_code, payment_amount, payment_account_id, payment_date,
+                payment_currency, payment_status, payment_recipient, payment_recipient_country, first_seen_at, last_updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(nvc_code) DO UPDATE SET
+                payment_amount = excluded.payment_amount,
+                payment_account_id = excluded.payment_account_id,
+                payment_date = excluded.payment_date,
+                payment_currency = excluded.payment_currency,
+                payment_status = excluded.payment_status,
+                payment_recipient = excluded.payment_recipient,
+                payment_recipient_country = excluded.payment_recipient_country,
+                last_updated_at = ?
+        """, (nvc_code, amount, account_id, date, currency, status, recipient, recipient_country, now, now, now))
+        conn.commit()
     recalculate_match_status(nvc_code)
 
 
@@ -221,44 +222,42 @@ def upsert_received_payment(payment_id: str, account_id: str, account_name: str,
                              payment_status: str, payer_name: str, raw_info: str,
                              msl_reference: str, created_on: str):
     """Insert or update a received payment record (incoming funding — Leg 3)."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        INSERT INTO received_payments (id, account_id, account_name, amount, currency, payment_date,
-            payment_status, payer_name, raw_info, msl_reference, created_on, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            account_name = excluded.account_name,
-            amount = excluded.amount,
-            currency = excluded.currency,
-            payment_date = excluded.payment_date,
-            payment_status = excluded.payment_status,
-            payer_name = excluded.payer_name,
-            raw_info = excluded.raw_info,
-            msl_reference = excluded.msl_reference,
-            created_on = excluded.created_on,
-            fetched_at = excluded.fetched_at
-    """, (payment_id, account_id, account_name, amount, currency, payment_date,
-          payment_status, payer_name, raw_info, msl_reference, created_on, now))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            INSERT INTO received_payments (id, account_id, account_name, amount, currency, payment_date,
+                payment_status, payer_name, raw_info, msl_reference, created_on, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                account_name = excluded.account_name,
+                amount = excluded.amount,
+                currency = excluded.currency,
+                payment_date = excluded.payment_date,
+                payment_status = excluded.payment_status,
+                payer_name = excluded.payer_name,
+                raw_info = excluded.raw_info,
+                msl_reference = excluded.msl_reference,
+                created_on = excluded.created_on,
+                fetched_at = excluded.fetched_at
+        """, (payment_id, account_id, account_name, amount, currency, payment_date,
+              payment_status, payer_name, raw_info, msl_reference, created_on, now))
+        conn.commit()
 
 
 def link_received_payment_to_nvc(nvc_code: str, received_payment_id: str,
                                   amount: float, date: str):
     """Link a received payment to an NVC code in reconciliation_records (Leg 3)."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        UPDATE reconciliation_records SET
-            received_payment_id = ?,
-            received_payment_amount = ?,
-            received_payment_date = ?,
-            last_updated_at = ?
-        WHERE nvc_code = ?
-    """, (received_payment_id, amount, date, now, nvc_code))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            UPDATE reconciliation_records SET
+                received_payment_id = ?,
+                received_payment_amount = ?,
+                received_payment_date = ?,
+                last_updated_at = ?
+            WHERE nvc_code = ?
+        """, (received_payment_id, amount, date, now, nvc_code))
+        conn.commit()
     recalculate_match_status(nvc_code)
 
 
@@ -272,53 +271,50 @@ def get_received_payments(
     offset: int = 0,
 ) -> tuple:
     """Get received payments with filters. Returns (records, total)."""
-    conn = _get_conn()
-    conditions = []
-    params: list = []
+    with _get_conn() as conn:
+        conditions = []
+        params: list = []
 
-    if account_id:
-        conditions.append("account_id = ?")
-        params.append(account_id)
-    if match_status:
-        conditions.append("match_status = ?")
-        params.append(match_status)
-    if payer:
-        conditions.append("payer_name LIKE ?")
-        params.append(f"%{payer}%")
-    if date_from:
-        conditions.append("payment_date >= ?")
-        params.append(date_from)
-    if date_to:
-        conditions.append("payment_date <= ?")
-        params.append(date_to)
+        if account_id:
+            conditions.append("account_id = ?")
+            params.append(account_id)
+        if match_status:
+            conditions.append("match_status = ?")
+            params.append(match_status)
+        if payer:
+            conditions.append("payer_name LIKE ?")
+            params.append(f"%{payer}%")
+        if date_from:
+            conditions.append("payment_date >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("payment_date <= ?")
+            params.append(date_to)
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    total = conn.execute(f"SELECT COUNT(*) FROM received_payments {where}", params).fetchone()[0]
-    rows = conn.execute(
-        f"SELECT * FROM received_payments {where} ORDER BY payment_date DESC LIMIT ? OFFSET ?",
-        params + [limit, offset]
-    ).fetchall()
-    conn.close()
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        total = conn.execute(f"SELECT COUNT(*) FROM received_payments {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT * FROM received_payments {where} ORDER BY payment_date DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
     return [dict(r) for r in rows], total
 
 
 def get_received_payment(payment_id: str) -> Optional[Dict[str, Any]]:
     """Get a single received payment."""
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
-    conn.close()
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
     return dict(row) if row else None
 
 
 def get_received_payments_summary() -> Dict[str, Any]:
     """Get received payments summary."""
-    conn = _get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM received_payments").fetchone()[0]
-    total_amount = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM received_payments").fetchone()[0]
-    by_status = conn.execute(
-        "SELECT match_status, COUNT(*) as cnt, SUM(amount) as total FROM received_payments GROUP BY match_status"
-    ).fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM received_payments").fetchone()[0]
+        total_amount = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM received_payments").fetchone()[0]
+        by_status = conn.execute(
+            "SELECT match_status, COUNT(*) as cnt, SUM(amount) as total FROM received_payments GROUP BY match_status"
+        ).fetchall()
     return {
         'total': total,
         'total_amount': total_amount,
@@ -329,125 +325,121 @@ def get_received_payments_summary() -> Dict[str, Any]:
 def match_received_payment(payment_id: str, email_id: str, confidence: float,
                             method: str, matched_by: str = 'auto'):
     """Match a received payment to a remittance email."""
-    conn = _get_conn()
-    now = _now()
-    conn.execute("""
-        UPDATE received_payments SET
-            matched_remittance_email_id = ?,
-            match_confidence = ?,
-            match_method = ?,
-            match_status = 'matched',
-            matched_at = ?,
-            matched_by = ?
-        WHERE id = ?
-    """, (email_id, confidence, method, now, matched_by, payment_id))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        conn.execute("""
+            UPDATE received_payments SET
+                matched_remittance_email_id = ?,
+                match_confidence = ?,
+                match_method = ?,
+                match_status = 'matched',
+                matched_at = ?,
+                matched_by = ?
+            WHERE id = ?
+        """, (email_id, confidence, method, now, matched_by, payment_id))
+        conn.commit()
 
 
 def unmatch_received_payment(payment_id: str):
     """Undo a received payment match."""
-    conn = _get_conn()
-    now = _now()
-    # Get the payment to find linked NVCs
-    rp = conn.execute("SELECT matched_remittance_email_id FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
-    
-    conn.execute("""
-        UPDATE received_payments SET
-            matched_remittance_email_id = NULL,
-            match_confidence = NULL,
-            match_method = NULL,
-            match_status = 'unmatched',
-            matched_at = NULL,
-            matched_by = NULL
-        WHERE id = ?
-    """, (payment_id,))
-    
-    # Clear received_payment linkage from reconciliation_records
-    conn.execute("""
-        UPDATE reconciliation_records SET
-            received_payment_id = NULL,
-            received_payment_amount = NULL,
-            received_payment_date = NULL,
-            last_updated_at = ?
-        WHERE received_payment_id = ?
-    """, (now, payment_id))
-    
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        # Get the payment to find linked NVCs
+        rp = conn.execute("SELECT matched_remittance_email_id FROM received_payments WHERE id = ?", (payment_id,)).fetchone()
+
+        conn.execute("""
+            UPDATE received_payments SET
+                matched_remittance_email_id = NULL,
+                match_confidence = NULL,
+                match_method = NULL,
+                match_status = 'unmatched',
+                matched_at = NULL,
+                matched_by = NULL
+            WHERE id = ?
+        """, (payment_id,))
+
+        # Clear received_payment linkage from reconciliation_records
+        conn.execute("""
+            UPDATE reconciliation_records SET
+                received_payment_id = NULL,
+                received_payment_amount = NULL,
+                received_payment_date = NULL,
+                last_updated_at = ?
+            WHERE received_payment_id = ?
+        """, (now, payment_id))
+
+        conn.commit()
 
 
 def recalculate_match_status(nvc_code: str):
     """Recalculate match_status and match_flags for 4-way matching.
-    
+
     Legs: remittance, invoice, funding (received_payment), payment (outbound).
     """
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
-    if not row:
-        conn.close()
-        return
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
+        if not row:
+            return
 
-    row = dict(row)
-    has_remittance = row['remittance_amount'] is not None
-    has_invoice = row['invoice_amount'] is not None
-    has_funding = row.get('received_payment_id') is not None  # Leg 3: inbound USD
-    has_payment = row.get('payment_amount') is not None       # Leg 4: outbound to contractor
-    flags = []
+        row = dict(row)
+        has_remittance = row['remittance_amount'] is not None
+        has_invoice = row['invoice_amount'] is not None
+        has_funding = row.get('received_payment_id') is not None  # Leg 3: inbound USD
+        has_payment = row.get('payment_amount') is not None       # Leg 4: outbound to contractor
+        flags = []
 
-    # If resolved, keep resolved status
-    if row['resolved_at']:
-        status = 'resolved'
-    elif has_remittance and has_invoice and has_funding and has_payment:
-        # All 4 legs present
-        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
-            status = 'full_4way'
-        else:
-            status = 'amount_mismatch'
-            if not _amounts_match(row['remittance_amount'], row['invoice_amount']):
+        # If resolved, keep resolved status
+        if row['resolved_at']:
+            status = 'resolved'
+        elif has_remittance and has_invoice and has_funding and has_payment:
+            # All 4 legs present
+            if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+                status = 'full_4way'
+            else:
+                status = 'amount_mismatch'
+                if not _amounts_match(row['remittance_amount'], row['invoice_amount']):
+                    flags.append('remittance_invoice_mismatch')
+        elif has_remittance and has_invoice and has_funding:
+            # 3 legs: funded but not yet paid out
+            if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+                status = '3way_awaiting_payment'
+            else:
+                status = 'amount_mismatch'
                 flags.append('remittance_invoice_mismatch')
-    elif has_remittance and has_invoice and has_funding:
-        # 3 legs: funded but not yet paid out
-        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
-            status = '3way_awaiting_payment'
+        elif has_remittance and has_invoice and has_payment:
+            # 3 legs: paid out but no inbound funding record
+            if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+                status = '3way_no_funding'
+            else:
+                status = 'amount_mismatch'
+                flags.append('remittance_invoice_mismatch')
+        elif has_remittance and has_invoice:
+            if _amounts_match(row['remittance_amount'], row['invoice_amount']):
+                status = '2way_matched'
+            else:
+                status = 'amount_mismatch'
+                flags.append('amount_mismatch')
+        elif has_invoice and has_payment:
+            status = 'invoice_payment_only'
+            flags.append('missing_remittance')
+        elif has_remittance:
+            status = 'remittance_only'
+            flags.append('missing_invoice')
+        elif has_invoice:
+            status = 'invoice_only'
+            flags.append('missing_remittance')
+        elif has_payment:
+            status = 'payment_only'
+            flags.append('missing_remittance')
+            flags.append('missing_invoice')
         else:
-            status = 'amount_mismatch'
-            flags.append('remittance_invoice_mismatch')
-    elif has_remittance and has_invoice and has_payment:
-        # 3 legs: paid out but no inbound funding record
-        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
-            status = '3way_no_funding'
-        else:
-            status = 'amount_mismatch'
-            flags.append('remittance_invoice_mismatch')
-    elif has_remittance and has_invoice:
-        if _amounts_match(row['remittance_amount'], row['invoice_amount']):
-            status = '2way_matched'
-        else:
-            status = 'amount_mismatch'
-            flags.append('amount_mismatch')
-    elif has_invoice and has_payment:
-        status = 'invoice_payment_only'
-        flags.append('missing_remittance')
-    elif has_remittance:
-        status = 'remittance_only'
-        flags.append('missing_invoice')
-    elif has_invoice:
-        status = 'invoice_only'
-        flags.append('missing_remittance')
-    elif has_payment:
-        status = 'payment_only'
-        flags.append('missing_remittance')
-        flags.append('missing_invoice')
-    else:
-        status = 'unmatched'
+            status = 'unmatched'
 
-    conn.execute(
-        "UPDATE reconciliation_records SET match_status = ?, match_flags = ?, last_updated_at = ? WHERE nvc_code = ?",
-        (status, json.dumps(flags), _now(), nvc_code)
-    )
-    conn.commit()
-    conn.close()
+        conn.execute(
+            "UPDATE reconciliation_records SET match_status = ?, match_flags = ?, last_updated_at = ? WHERE nvc_code = ?",
+            (status, json.dumps(flags), _now(), nvc_code)
+        )
+        conn.commit()
 
 
 def _amounts_match(a: float, b: float, tolerance: float = 0.01) -> bool:
@@ -467,51 +459,48 @@ def get_recon_records(
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """Get reconciliation records with optional filters."""
-    conn = _get_conn()
-    conditions = []
-    params: list = []
+    with _get_conn() as conn:
+        conditions = []
+        params: list = []
 
-    if status:
-        conditions.append("match_status = ?")
-        params.append(status)
-    if tenant:
-        conditions.append("invoice_tenant LIKE ?")
-        params.append(f"%{tenant}%")
-    if search:
-        conditions.append("nvc_code LIKE ?")
-        params.append(f"%{search}%")
-    if date_from:
-        conditions.append("first_seen_at >= ?")
-        params.append(date_from)
-    if date_to:
-        conditions.append("first_seen_at <= ?")
-        params.append(date_to)
+        if status:
+            conditions.append("match_status = ?")
+            params.append(status)
+        if tenant:
+            conditions.append("invoice_tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if search:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{search}%")
+        if date_from:
+            conditions.append("first_seen_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("first_seen_at <= ?")
+            params.append(date_to)
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    rows = conn.execute(
-        f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ? OFFSET ?",
-        params + [limit, offset]
-    ).fetchall()
-    conn.close()
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = conn.execute(
+            f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_recon_record(nvc_code: str) -> Optional[Dict[str, Any]]:
     """Get a single reconciliation record."""
-    conn = _get_conn()
-    row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
-    conn.close()
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
     return dict(row) if row else None
 
 
 def get_recon_summary() -> Dict[str, int]:
     """Get counts by match_status."""
-    conn = _get_conn()
-    rows = conn.execute(
-        "SELECT match_status, COUNT(*) as cnt FROM reconciliation_records GROUP BY match_status"
-    ).fetchall()
-    total = conn.execute("SELECT COUNT(*) FROM reconciliation_records").fetchone()[0]
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT match_status, COUNT(*) as cnt FROM reconciliation_records GROUP BY match_status"
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM reconciliation_records").fetchone()[0]
     summary = {r['match_status']: r['cnt'] for r in rows}
     summary['total'] = total
     return summary
@@ -519,41 +508,38 @@ def get_recon_summary() -> Dict[str, int]:
 
 def get_sync_state() -> List[Dict[str, Any]]:
     """Get sync state for all sources."""
-    conn = _get_conn()
-    rows = conn.execute("SELECT * FROM sync_state ORDER BY source").fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM sync_state ORDER BY source").fetchall()
     return [dict(r) for r in rows]
 
 
 def update_sync_state(source: str, count: int, status: str = 'ok'):
     """Update sync state for a source."""
-    conn = _get_conn()
-    conn.execute("""
-        INSERT INTO sync_state (source, last_sync_at, last_count, status)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(source) DO UPDATE SET
-            last_sync_at = excluded.last_sync_at,
-            last_count = excluded.last_count,
-            status = excluded.status
-    """, (source, _now(), count, status))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        conn.execute("""
+            INSERT INTO sync_state (source, last_sync_at, last_count, status)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(source) DO UPDATE SET
+                last_sync_at = excluded.last_sync_at,
+                last_count = excluded.last_count,
+                status = excluded.status
+        """, (source, _now(), count, status))
+        conn.commit()
 
 
 def cache_payruns(payruns: List[Dict[str, Any]]):
     """Cache pay runs locally."""
-    conn = _get_conn()
-    now = _now()
-    for p in payruns:
-        conn.execute("""
-            INSERT OR REPLACE INTO cached_payruns (id, reference, tenant, status, payment_count, total_amount, created_at, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            p.get('id'), p.get('reference'), p.get('tenant'), p.get('status'),
-            p.get('payment_count'), p.get('total_amount'), p.get('created_at'), now
-        ))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        for p in payruns:
+            conn.execute("""
+                INSERT OR REPLACE INTO cached_payruns (id, reference, tenant, status, payment_count, total_amount, created_at, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                p.get('id'), p.get('reference'), p.get('tenant'), p.get('status'),
+                p.get('payment_count'), p.get('total_amount'), p.get('created_at'), now
+            ))
+        conn.commit()
 
 
 def get_cached_payruns(
@@ -568,58 +554,56 @@ def get_cached_payruns(
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """Get cached pay runs with filters."""
-    conn = _get_conn()
-    conditions = []
-    params: list = []
+    with _get_conn() as conn:
+        conditions = []
+        params: list = []
 
-    if tenant:
-        conditions.append("tenant LIKE ?")
-        params.append(f"%{tenant}%")
-    if status is not None:
-        conditions.append("status = ?")
-        params.append(status)
-    if date_from:
-        conditions.append("created_at >= ?")
-        params.append(date_from)
-    if date_to:
-        conditions.append("created_at <= ?")
-        params.append(date_to)
-    if search:
-        conditions.append("(reference LIKE ? OR tenant LIKE ?)")
-        params.extend([f"%{search}%", f"%{search}%"])
+        if tenant:
+            conditions.append("tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        if date_from:
+            conditions.append("created_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("created_at <= ?")
+            params.append(date_to)
+        if search:
+            conditions.append("(reference LIKE ? OR tenant LIKE ?)")
+            params.extend([f"%{search}%", f"%{search}%"])
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    allowed_sorts = {'created_at', 'total_amount', 'tenant', 'reference', 'fetched_at'}
-    sort_col = sort_by if sort_by in allowed_sorts else 'created_at'
-    direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        allowed_sorts = {'created_at', 'total_amount', 'tenant', 'reference', 'fetched_at'}
+        sort_col = sort_by if sort_by in allowed_sorts else 'created_at'
+        direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
 
-    rows = conn.execute(
-        f"SELECT * FROM cached_payruns {where} ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
-        params + [limit, offset]
-    ).fetchall()
-    conn.close()
+        rows = conn.execute(
+            f"SELECT * FROM cached_payruns {where} ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def cache_invoices(invoices: List[Dict[str, Any]]):
     """Cache invoices locally."""
-    conn = _get_conn()
-    now = _now()
-    for inv in invoices:
-        conn.execute("""
-            INSERT OR REPLACE INTO cached_invoices
-            (nvc_code, payment_id, invoice_number, total_amount, currency, status, status_label,
-             paid_date, processing_date, in_flight_date, tenant, payrun_id, created_at, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            inv.get('nvc_code'), inv.get('payment_id'), inv.get('invoice_number'), inv.get('total_amount'),
-            inv.get('currency', ''), inv.get('status'), inv.get('status_label', ''),
-            inv.get('paid_date', ''), inv.get('processing_date', ''),
-            inv.get('in_flight_date', ''), inv.get('tenant', ''),
-            inv.get('payrun_id', ''), inv.get('created_at', ''), now,
-        ))
-    conn.commit()
-    conn.close()
+    with _get_conn() as conn:
+        now = _now()
+        for inv in invoices:
+            conn.execute("""
+                INSERT OR REPLACE INTO cached_invoices
+                (nvc_code, payment_id, invoice_number, total_amount, currency, status, status_label,
+                 paid_date, processing_date, in_flight_date, tenant, payrun_id, created_at, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                inv.get('nvc_code'), inv.get('payment_id'), inv.get('invoice_number'), inv.get('total_amount'),
+                inv.get('currency', ''), inv.get('status'), inv.get('status_label', ''),
+                inv.get('paid_date', ''), inv.get('processing_date', ''),
+                inv.get('in_flight_date', ''), inv.get('tenant', ''),
+                inv.get('payrun_id', ''), inv.get('created_at', ''), now,
+            ))
+        conn.commit()
 
 
 def get_cached_invoices(
@@ -632,92 +616,87 @@ def get_cached_invoices(
     offset: int = 0,
 ) -> tuple:
     """Get cached invoices with filters. Returns (records, total_count)."""
-    conn = _get_conn()
-    conditions: list = []
-    params: list = []
+    with _get_conn() as conn:
+        conditions: list = []
+        params: list = []
 
-    if tenant:
-        conditions.append("tenant LIKE ?")
-        params.append(f"%{tenant}%")
-    if status:
-        conditions.append("status_label = ?")
-        params.append(status)
-    if search:
-        conditions.append("(nvc_code LIKE ? OR invoice_number LIKE ? OR tenant LIKE ?)")
-        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+        if tenant:
+            conditions.append("tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if status:
+            conditions.append("status_label = ?")
+            params.append(status)
+        if search:
+            conditions.append("(nvc_code LIKE ? OR invoice_number LIKE ? OR tenant LIKE ?)")
+            params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    total = conn.execute(f"SELECT COUNT(*) FROM cached_invoices {where}", params).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(*) FROM cached_invoices {where}", params).fetchone()[0]
 
-    allowed_sorts = {'created_at', 'total_amount', 'tenant', 'nvc_code', 'status_label', 'fetched_at'}
-    sort_col = sort_by if sort_by in allowed_sorts else 'created_at'
-    direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+        allowed_sorts = {'created_at', 'total_amount', 'tenant', 'nvc_code', 'status_label', 'fetched_at'}
+        sort_col = sort_by if sort_by in allowed_sorts else 'created_at'
+        direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
 
-    rows = conn.execute(
-        f"SELECT * FROM cached_invoices {where} ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
-        params + [limit, offset]
-    ).fetchall()
-    conn.close()
+        rows = conn.execute(
+            f"SELECT * FROM cached_invoices {where} ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
     return [dict(r) for r in rows], total
 
 
 def _migrate_add_flag_columns():
     """Add flag/flag_notes columns if they don't exist (for existing DBs)."""
-    conn = _get_conn()
-    try:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
-        if 'flag' not in cols:
-            conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag TEXT")
-        if 'flag_notes' not in cols:
-            conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag_notes TEXT")
-        conn.commit()
-    except Exception as e:
-        logger.warning("Migration flag columns: %s", e)
-    finally:
-        conn.close()
+    with _get_conn() as conn:
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+            if 'flag' not in cols:
+                conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag TEXT")
+            if 'flag_notes' not in cols:
+                conn.execute("ALTER TABLE reconciliation_records ADD COLUMN flag_notes TEXT")
+            conn.commit()
+        except Exception as e:
+            logger.warning("Migration flag columns: %s", e)
 
 
 def _migrate_4way_columns():
     """Rename funding_* → payment_* and add received_payment_* columns for 4-way matching."""
-    conn = _get_conn()
-    try:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+    with _get_conn() as conn:
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
 
-        # Rename funding_* → payment_* (outbound to contractor)
-        renames = {
-            'funding_amount': 'payment_amount',
-            'funding_account_id': 'payment_account_id',
-            'funding_date': 'payment_date',
-            'funding_currency': 'payment_currency',
-            'funding_status': 'payment_status',
-            'funding_recipient': 'payment_recipient',
-            'funding_recipient_country': 'payment_recipient_country',
-        }
-        for old_col, new_col in renames.items():
-            if old_col in cols and new_col not in cols:
-                conn.execute(f"ALTER TABLE reconciliation_records RENAME COLUMN {old_col} TO {new_col}")
-                logger.info("Renamed column %s → %s", old_col, new_col)
+            # Rename funding_* → payment_* (outbound to contractor)
+            renames = {
+                'funding_amount': 'payment_amount',
+                'funding_account_id': 'payment_account_id',
+                'funding_date': 'payment_date',
+                'funding_currency': 'payment_currency',
+                'funding_status': 'payment_status',
+                'funding_recipient': 'payment_recipient',
+                'funding_recipient_country': 'payment_recipient_country',
+            }
+            for old_col, new_col in renames.items():
+                if old_col in cols and new_col not in cols:
+                    conn.execute(f"ALTER TABLE reconciliation_records RENAME COLUMN {old_col} TO {new_col}")
+                    logger.info("Renamed column %s → %s", old_col, new_col)
 
-        # Re-read columns after renames
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+            # Re-read columns after renames
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
 
-        # Add received payment columns (incoming funding)
-        new_cols = {
-            'received_payment_id': 'TEXT',
-            'received_payment_amount': 'REAL',
-            'received_payment_date': 'TEXT',
-        }
-        for col, dtype in new_cols.items():
-            if col not in cols:
-                conn.execute(f"ALTER TABLE reconciliation_records ADD COLUMN {col} {dtype}")
-                logger.info("Added column %s", col)
+            # Add received payment columns (incoming funding)
+            new_cols = {
+                'received_payment_id': 'TEXT',
+                'received_payment_amount': 'REAL',
+                'received_payment_date': 'TEXT',
+            }
+            for col, dtype in new_cols.items():
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE reconciliation_records ADD COLUMN {col} {dtype}")
+                    logger.info("Added column %s", col)
 
-        conn.commit()
-    except Exception as e:
-        logger.warning("Migration 4-way columns: %s", e)
-    finally:
-        conn.close()
+            conn.commit()
+        except Exception as e:
+            logger.warning("Migration 4-way columns: %s", e)
 
 
 def get_recon_records_queue(
@@ -733,55 +712,54 @@ def get_recon_records_queue(
     offset: int = 0,
 ) -> tuple:
     """Get unreconciled records sorted by priority. Returns (records, total_count)."""
-    conn = _get_conn()
-    conditions = ["match_status NOT IN ('full_3way', 'resolved')"]
-    params: list = []
+    with _get_conn() as conn:
+        conditions = ["match_status NOT IN ('full_3way', 'resolved')"]
+        params: list = []
 
-    if status:
-        conditions.append("match_status = ?")
-        params.append(status)
-    if tenant:
-        conditions.append("invoice_tenant LIKE ?")
-        params.append(f"%{tenant}%")
-    if flag:
-        conditions.append("flag = ?")
-        params.append(flag)
-    if search:
-        conditions.append("nvc_code LIKE ?")
-        params.append(f"%{search}%")
-    if date_from:
-        conditions.append("first_seen_at >= ?")
-        params.append(date_from)
-    if date_to:
-        conditions.append("first_seen_at <= ?")
-        params.append(date_to)
+        if status:
+            conditions.append("match_status = ?")
+            params.append(status)
+        if tenant:
+            conditions.append("invoice_tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if flag:
+            conditions.append("flag = ?")
+            params.append(flag)
+        if search:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{search}%")
+        if date_from:
+            conditions.append("first_seen_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("first_seen_at <= ?")
+            params.append(date_to)
 
-    where = f"WHERE {' AND '.join(conditions)}"
+        where = f"WHERE {' AND '.join(conditions)}"
 
-    # Count
-    total = conn.execute(f"SELECT COUNT(*) FROM reconciliation_records {where}", params).fetchone()[0]
+        # Count
+        total = conn.execute(f"SELECT COUNT(*) FROM reconciliation_records {where}", params).fetchone()[0]
 
-    # Priority ordering
-    if sort_by == 'priority':
-        order = """CASE match_status
-            WHEN 'mismatch' THEN 1
-            WHEN 'partial_2way' THEN 2
-            WHEN 'remittance_only' THEN 3
-            WHEN 'invoice_only' THEN 4
-            WHEN 'unmatched' THEN 5
-            ELSE 6
-        END ASC, last_updated_at DESC"""
-    else:
-        allowed = {'last_updated_at', 'first_seen_at', 'remittance_amount', 'invoice_amount', 'funding_amount'}
-        col = sort_by if sort_by in allowed else 'last_updated_at'
-        direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
-        order = f"{col} {direction}"
+        # Priority ordering
+        if sort_by == 'priority':
+            order = """CASE match_status
+                WHEN 'mismatch' THEN 1
+                WHEN 'partial_2way' THEN 2
+                WHEN 'remittance_only' THEN 3
+                WHEN 'invoice_only' THEN 4
+                WHEN 'unmatched' THEN 5
+                ELSE 6
+            END ASC, last_updated_at DESC"""
+        else:
+            allowed = {'last_updated_at', 'first_seen_at', 'remittance_amount', 'invoice_amount', 'funding_amount'}
+            col = sort_by if sort_by in allowed else 'last_updated_at'
+            direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+            order = f"{col} {direction}"
 
-    rows = conn.execute(
-        f"SELECT * FROM reconciliation_records {where} ORDER BY {order} LIMIT ? OFFSET ?",
-        params + [limit, offset]
-    ).fetchall()
-    conn.close()
+        rows = conn.execute(
+            f"SELECT * FROM reconciliation_records {where} ORDER BY {order} LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
     return [dict(r) for r in rows], total
 
 
