@@ -255,69 +255,45 @@ def _payer_matches_agency(payer_name: str, agency_name: str) -> float:
 
 def run_funding_matcher():
     """Match received payments to remittance emails using amount + date + payer name.
-    
+
     When matched, cascade to link all NVC codes from that remittance email.
     """
-    import sqlite3
-    
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    
+    from recon_db import get_email_remittance_totals, get_nvc_codes_for_email
+
     # Get unmatched received payments
-    unmatched_rps = conn.execute(
-        "SELECT * FROM received_payments WHERE match_status = 'unmatched'"
-    ).fetchall()
-    
+    unmatched_rps, _ = get_received_payments(match_status='unmatched', limit=1000)
+
     if not unmatched_rps:
-        conn.close()
         logger.info("run_funding_matcher: no unmatched received payments")
         return 0
-    
-    # Get remittance emails with totals from the email DB
-    # We need to aggregate remittance totals per email from reconciliation_records
+
+    # Get remittance email totals from recon DB
     email_totals = {}
-    email_rows = conn.execute("""
-        SELECT remittance_email_id, 
-               SUM(remittance_amount) as total_amount,
-               MIN(remittance_date) as earliest_date,
-               remittance_source
-        FROM reconciliation_records 
-        WHERE remittance_email_id IS NOT NULL 
-        GROUP BY remittance_email_id
-    """).fetchall()
-    
-    for er in email_rows:
-        email_totals[er['remittance_email_id']] = {
-            'total_amount': er['total_amount'],
-            'date': er['earliest_date'],
-            'source': er['remittance_source'],
+    for et in get_email_remittance_totals():
+        email_totals[et['remittance_email_id']] = {
+            'total_amount': et['total_amount'],
+            'date': et['date'],
         }
-    
-    # Also try to get agency names from the processed emails DB
+
+    # Get agency names from processed emails DB
     email_agencies = {}
     try:
-        import sqlite3 as _sq
-        from pathlib import Path
-        econn = _sq.connect(str(Path('data/processed_emails.db')))
-        econn.row_factory = _sq.Row
-        for row in econn.execute("SELECT id, subject, sender FROM emails").fetchall():
-            # Extract agency from subject line
-            subj = row['subject'] or ''
-            email_agencies[row['id']] = subj
-        econn.close()
+        from email_db import _get_conn as _get_email_conn
+        with _get_email_conn() as econn:
+            for row in econn.execute("SELECT id, subject FROM emails").fetchall():
+                email_agencies[row['id']] = row['subject'] or ''
     except Exception:
         pass
-    
+
     matched_count = 0
-    
+
     for rp in unmatched_rps:
-        rp = dict(rp)
         best_match = None
         best_score = 0.0
-        
+
         for email_id, email_info in email_totals.items():
             score = 0.0
-            
+
             # Amount match (weight 0.5)
             rp_amt = rp['amount']
             em_amt = email_info['total_amount']
@@ -329,7 +305,7 @@ def run_funding_matcher():
                     score += 0.35
                 elif diff_pct <= 0.05:  # within 5%
                     score += 0.15
-            
+
             # Date match (weight 0.2)
             if rp.get('payment_date') and email_info.get('date'):
                 try:
@@ -349,42 +325,39 @@ def run_funding_matcher():
                         score += 0.04
                 except Exception:
                     pass
-            
+
             # Payer name match (weight 0.3)
             agency_str = email_agencies.get(email_id, '')
             payer_score = _payer_matches_agency(rp.get('payer_name', ''), agency_str)
             score += 0.3 * payer_score
-            
+
             if score > best_score:
                 best_score = score
                 best_match = email_id
-        
+
         # Auto-match if score >= 0.8
         if best_match and best_score >= 0.8:
             match_received_payment(rp['id'], best_match, best_score, 'auto_amount_date_payer')
-            
-            # Cascade: link all NVC codes from this email to this received payment
-            nvc_rows = conn.execute(
-                "SELECT nvc_code FROM reconciliation_records WHERE remittance_email_id = ?",
-                (best_match,)
-            ).fetchall()
-            for nr in nvc_rows:
+
+            # Cascade: link all NVC codes from this email
+            nvc_codes = get_nvc_codes_for_email(best_match)
+            for nvc in nvc_codes:
                 link_received_payment_to_nvc(
-                    nr['nvc_code'], rp['id'], rp['amount'], rp.get('payment_date', '')
+                    nvc, rp['id'], rp['amount'], rp.get('payment_date', '')
                 )
-            
+
             matched_count += 1
             logger.info("Matched received payment %s ($%.2f) → email %s (score: %.2f, %d NVCs)",
-                        rp['id'], rp['amount'], best_match, best_score, len(nvc_rows))
+                        rp['id'], rp['amount'], best_match, best_score, len(nvc_codes))
         elif best_match and best_score >= 0.5:
             # Mark as suggested (partial match)
-            conn.execute(
-                "UPDATE received_payments SET match_status = 'suggested', notes = ? WHERE id = ?",
-                (f"Suggested: email {best_match} (score: {best_score:.2f})", rp['id'])
-            )
-            conn.commit()
-    
-    conn.close()
+            with _get_conn() as conn:
+                conn.execute(
+                    "UPDATE received_payments SET match_status = 'suggested', notes = ? WHERE id = ?",
+                    (f"Suggested: email {best_match} (score: {best_score:.2f})", rp['id'])
+                )
+                conn.commit()
+
     logger.info("run_funding_matcher: matched %d of %d unmatched received payments", matched_count, len(unmatched_rps))
     return matched_count
 

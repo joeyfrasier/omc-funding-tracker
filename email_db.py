@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,50 @@ def get_stats():
         for row in conn.execute("SELECT source, COUNT(*) as cnt FROM emails GROUP BY source"):
             stats['sources'][row[0]] = row[1]
     return stats
+
+
+def search_email_matches(query: Optional[str] = None, amount_min: Optional[float] = None,
+                          amount_max: Optional[float] = None, limit: int = 50) -> list:
+    """Search match results across emails for cross-search."""
+    with _get_conn() as conn:
+        conditions: list = []
+        params: list = []
+        if query:
+            conditions.append("(e.subject LIKE ? OR e.sender LIKE ? OR mr.nvc_code LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = conn.execute(f"""
+            SELECT DISTINCT mr.nvc_code, mr.remittance_amount, mr.description, mr.company,
+                   mr.status, mr.tenant, e.subject, e.sender, e.email_date,
+                   r.agency, r.payment_amount, r.source_type
+            FROM match_results mr
+            JOIN remittances r ON mr.remittance_id = r.id
+            JOIN emails e ON r.email_id = e.id
+            {where}
+            ORDER BY e.email_date DESC
+            LIMIT ?
+        """, params + [limit]).fetchall()
+    results = []
+    for r in rows:
+        rd = dict(r)
+        amt = rd.get('remittance_amount', 0) or 0
+        if amount_min and amt < amount_min:
+            continue
+        if amount_max and amt > amount_max:
+            continue
+        results.append({
+            'source': 'email',
+            'nvc_code': rd.get('nvc_code'),
+            'amount': amt,
+            'description': rd.get('description'),
+            'company': rd.get('company'),
+            'tenant': rd.get('tenant'),
+            'email_subject': rd.get('subject'),
+            'sender': rd.get('sender'),
+            'date': rd.get('email_date'),
+            'agency': rd.get('agency'),
+        })
+    return results
 
 
 # Initialize on import

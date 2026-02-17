@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # App source
 COPY *.py ./
+COPY routers/ ./routers/
 COPY config.json ./
 COPY templates/ ./templates/
 COPY static/ ./static/

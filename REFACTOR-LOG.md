@@ -80,7 +80,76 @@ This meant `reconciler.py` was summing "Paid" invoices using `status == 5`, whic
 
 ---
 
-## Files Modified
+---
+
+## Phase 2: Consolidation (2026-02-17)
+
+### Task 7: Delete dead code
+**Status:** DONE
+**Deleted:** `remittance_parser.py`, `reconciler.py`, `dashboard.py`, `.streamlit/config.toml`
+**Frontend:** Removed dead `ReconcileTab` and `HistoryTab` from `page.tsx` (~217 lines)
+**Cleaned imports:** Removed unused `ReconcileResult`, `ProcessedEmail`, `StatsData` types
+
+---
+
+### Task 8: Extract reconciliation pipeline into shared service
+**Status:** DONE
+**Problem:** The fetch-parse-reconcile-mark workflow was duplicated across `api.py` and `app.py` (~100 lines each). Both had nearly identical code for the 4-step pipeline.
+
+**Changes:**
+- Created `reconciliation_service.py` with `run_pipeline()`, `format_report_data()`, `build_summary()`
+- `run_pipeline()` accepts an optional `progress_callback` for UI progress tracking
+- Returns a `ReconciliationResult` dataclass with all stats
+- `api.py` `/api/reconcile` now calls `run_pipeline()` (3 lines vs 100)
+- `app.py` `/api/run` now calls `run_pipeline()` with progress callback (20 lines vs 130)
+- Removed duplicate `_build_summary()` from `app.py`, uses `build_summary()` from service
+
+---
+
+### Task 9: Fix DB connection leaks
+**Status:** DONE
+**Problem:** ~30 functions across `recon_db.py` and `email_db.py` had `conn.close()` not protected by try/finally.
+
+**Changes:**
+- Refactored `_get_conn()` to `@contextmanager` in both files
+- All consumer functions now use `with _get_conn() as conn:`
+- Connection always closed even on exception
+
+---
+
+### Task 10: Split api.py into FastAPI routers
+**Status:** DONE
+**Problem:** `api.py` was 1137 lines with all endpoints in a single file, plus 10+ raw `sqlite3.connect()` calls bypassing the DB helper modules.
+
+**Changes:**
+- Created `routers/` package with 7 router modules:
+  - `routers/__init__.py` — shared `serialize()` and `DecimalEncoder`
+  - `routers/core.py` — health, overview, tenants, moneycorp, config
+  - `routers/emails.py` — email fetch, processed, detail
+  - `routers/payruns.py` — payruns, payments, cached data
+  - `routers/recon.py` — reconciliation records, queue, suggestions, associate, flag
+  - `routers/received_payments.py` — received payments CRUD + suggestions
+  - `routers/sync.py` — sync trigger, status
+  - `routers/search.py` — cross-search
+- `api.py` reduced from 1137 → 110 lines (thin app shell with router mounting)
+- All 10 raw `sqlite3.connect()` calls eliminated from API layer
+- Added 8 helper functions to `recon_db.py`: `get_agency_stats()`, `get_recon_queue()`, `get_nvc_codes_for_email()`, `get_email_remittance_totals()`, `update_recon_flag()`, `append_recon_note()`, `search_recon_records()`, `find_amount_suggestions()`
+- Added `search_email_matches()` to `email_db.py`
+- Fixed `sync_service.py` `run_funding_matcher()` to use helpers instead of raw sqlite3
+- Updated `Dockerfile` to copy `routers/` directory
+
+---
+
+### Task 11: Pin all Python dependencies
+**Status:** DONE
+- Removed unused `streamlit` and `pandas`
+- All deps pinned with exact versions in `requirements.txt`
+- Added `fastapi`, `uvicorn`, `pydantic` (previously installed via Dockerfile only)
+- Dockerfile: removed redundant `pip install fastapi uvicorn`, fixed `COPY *.json` footgun
+
+---
+
+## Phase 1 Files Modified
 
 | File | Changes |
 |------|---------|
@@ -92,3 +161,17 @@ This meant `reconciler.py` was summing "Paid" invoices using `status == 5`, whic
 | `docker-compose.yml` | Fix health check path |
 | `gmail_client.py` | Remove hardcoded email default |
 | `.env.example` | Align var names with code, add new vars |
+
+## Phase 2 Files Modified
+
+| File | Changes |
+|------|---------|
+| `api.py` | Rewritten: 1137 → 110 lines, mounts 7 routers |
+| `app.py` | Uses `reconciliation_service`, removed duplicated pipeline + summary |
+| `reconciliation_service.py` | NEW: shared fetch-parse-reconcile pipeline |
+| `routers/` | NEW: 7 router modules + `__init__.py` |
+| `recon_db.py` | 8 new helper functions, replaced old `get_recon_records_queue()` |
+| `email_db.py` | Added `search_email_matches()`, `Optional` import |
+| `sync_service.py` | Fixed `run_funding_matcher()` — uses helpers, no raw sqlite3 |
+| `Dockerfile` | Added `COPY routers/` |
+| `requirements.txt` | Removed streamlit/pandas, pinned all deps |

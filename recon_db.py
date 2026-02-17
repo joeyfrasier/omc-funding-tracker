@@ -699,21 +699,20 @@ def _migrate_4way_columns():
             logger.warning("Migration 4-way columns: %s", e)
 
 
-def get_recon_records_queue(
+def get_recon_queue(
     status: Optional[str] = None,
     tenant: Optional[str] = None,
     flag: Optional[str] = None,
     search: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    sort_by: str = 'priority',
-    sort_dir: str = 'asc',
-    limit: int = 50,
+    invoice_status: Optional[str] = None,
+    sort_by: str = 'last_updated_at',
+    sort_dir: str = 'desc',
+    limit: int = 100,
     offset: int = 0,
 ) -> tuple:
-    """Get unreconciled records sorted by priority. Returns (records, total_count)."""
+    """Get reconciliation queue with priority ordering. Returns (records, total)."""
     with _get_conn() as conn:
-        conditions = ["match_status NOT IN ('full_3way', 'resolved')"]
+        conditions: list = []
         params: list = []
 
         if status:
@@ -728,39 +727,218 @@ def get_recon_records_queue(
         if search:
             conditions.append("nvc_code LIKE ?")
             params.append(f"%{search}%")
-        if date_from:
-            conditions.append("first_seen_at >= ?")
-            params.append(date_from)
-        if date_to:
-            conditions.append("first_seen_at <= ?")
-            params.append(date_to)
+        if invoice_status:
+            conditions.append("invoice_status = ?")
+            params.append(invoice_status)
 
-        where = f"WHERE {' AND '.join(conditions)}"
-
-        # Count
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         total = conn.execute(f"SELECT COUNT(*) FROM reconciliation_records {where}", params).fetchone()[0]
 
-        # Priority ordering
-        if sort_by == 'priority':
-            order = """CASE match_status
-                WHEN 'mismatch' THEN 1
-                WHEN 'partial_2way' THEN 2
-                WHEN 'remittance_only' THEN 3
-                WHEN 'invoice_only' THEN 4
-                WHEN 'unmatched' THEN 5
-                ELSE 6
-            END ASC, last_updated_at DESC"""
-        else:
-            allowed = {'last_updated_at', 'first_seen_at', 'remittance_amount', 'invoice_amount', 'funding_amount'}
-            col = sort_by if sort_by in allowed else 'last_updated_at'
-            direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
-            order = f"{col} {direction}"
+        allowed_sorts = {'last_updated_at', 'first_seen_at', 'invoice_amount', 'remittance_amount', 'payment_amount'}
+        sort_col = sort_by if sort_by in allowed_sorts else 'last_updated_at'
+        direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+
+        order = f"""
+            CASE match_status
+                WHEN 'amount_mismatch' THEN 1
+                WHEN 'remittance_only' THEN 2
+                WHEN 'invoice_only' THEN 3
+                WHEN 'payment_only' THEN 4
+                WHEN 'invoice_payment_only' THEN 5
+                WHEN '2way_matched' THEN 6
+                WHEN '3way_no_funding' THEN 7
+                WHEN '3way_awaiting_payment' THEN 8
+                WHEN 'full_4way' THEN 9
+                WHEN 'resolved' THEN 10
+            END, {sort_col} {direction}
+        """
 
         rows = conn.execute(
             f"SELECT * FROM reconciliation_records {where} ORDER BY {order} LIMIT ? OFFSET ?",
             params + [limit, offset]
         ).fetchall()
     return [dict(r) for r in rows], total
+
+
+def get_agency_stats() -> List[Dict[str, Any]]:
+    """Get reconciliation stats grouped by tenant for the overview dashboard."""
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT invoice_tenant,
+                   COUNT(*) as total_records,
+                   SUM(CASE WHEN match_status IN ('full_4way', '3way_awaiting_payment', '3way_no_funding', '2way_matched') THEN 1 ELSE 0 END) as reconciled,
+                   SUM(CASE WHEN match_status = 'full_4way' THEN 1 ELSE 0 END) as full_4way,
+                   SUM(CASE WHEN match_status IN ('amount_mismatch', 'invoice_only', 'remittance_only', 'payment_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
+                   SUM(COALESCE(invoice_amount, 0)) as total_value
+            FROM reconciliation_records
+            WHERE invoice_tenant IS NOT NULL AND invoice_tenant != ''
+            GROUP BY invoice_tenant
+            ORDER BY total_value DESC
+        """).fetchall()
+    return [{
+        'name': r['invoice_tenant'],
+        'count': r['total_records'],
+        'total': r['total_value'],
+        'reconciled_count': r['reconciled'],
+        'full_4way_count': r['full_4way'],
+        'unreconciled_count': r['unreconciled'],
+    } for r in rows]
+
+
+def get_nvc_codes_for_email(email_id: str) -> List[str]:
+    """Get NVC codes associated with a remittance email."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT nvc_code FROM reconciliation_records WHERE remittance_email_id = ?",
+            (email_id,)
+        ).fetchall()
+    return [r['nvc_code'] for r in rows]
+
+
+def get_email_remittance_totals() -> List[Dict[str, Any]]:
+    """Get aggregated remittance totals per email ID."""
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT remittance_email_id,
+                   SUM(remittance_amount) as total_amount,
+                   MIN(remittance_date) as date,
+                   COUNT(*) as nvc_count
+            FROM reconciliation_records
+            WHERE remittance_email_id IS NOT NULL
+            GROUP BY remittance_email_id
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_recon_flag(nvc_code: str, flag: Optional[str], notes: Optional[str] = None):
+    """Set flag and notes on a reconciliation record."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE reconciliation_records SET flag = ?, flag_notes = ?, last_updated_at = ? WHERE nvc_code = ?",
+            (flag or None, notes or None, _now(), nvc_code)
+        )
+        conn.commit()
+
+
+def append_recon_note(nvc_code: str, note: str):
+    """Append an audit note to a reconciliation record."""
+    with _get_conn() as conn:
+        row = conn.execute("SELECT notes FROM reconciliation_records WHERE nvc_code = ?", (nvc_code,)).fetchone()
+        existing = (row['notes'] or '') if row else ''
+        new_notes = f"{existing}\n{note}".strip()
+        conn.execute(
+            "UPDATE reconciliation_records SET notes = ?, last_updated_at = ? WHERE nvc_code = ?",
+            (new_notes, _now(), nvc_code)
+        )
+        conn.commit()
+
+
+def search_recon_records(
+    amount_field: str,
+    nvc_search: Optional[str] = None,
+    tenant: Optional[str] = None,
+    amount_min: Optional[float] = None,
+    amount_max: Optional[float] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Search reconciliation records by amount field with filters."""
+    with _get_conn() as conn:
+        allowed_fields = {'remittance_amount', 'invoice_amount', 'payment_amount'}
+        if amount_field not in allowed_fields:
+            return []
+        conditions = [f"{amount_field} IS NOT NULL"]
+        params: list = []
+        if nvc_search:
+            conditions.append("nvc_code LIKE ?")
+            params.append(f"%{nvc_search}%")
+        if tenant:
+            conditions.append("invoice_tenant LIKE ?")
+            params.append(f"%{tenant}%")
+        if amount_min is not None:
+            conditions.append(f"{amount_field} >= ?")
+            params.append(amount_min)
+        if amount_max is not None:
+            conditions.append(f"{amount_field} <= ?")
+            params.append(amount_max)
+        where = f"WHERE {' AND '.join(conditions)}"
+        rows = conn.execute(
+            f"SELECT * FROM reconciliation_records {where} ORDER BY last_updated_at DESC LIMIT ?",
+            params + [limit]
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_amount_suggestions(nvc_code: str) -> List[Dict[str, Any]]:
+    """Find potential amount-based matches for suggestions."""
+    record = get_recon_record(nvc_code)
+    if not record:
+        return []
+
+    with _get_conn() as conn:
+        suggestions = []
+        seen: set = set()
+
+        # Amount-based matches (±1%)
+        for amt_field, src_label in [
+            ('remittance_amount', 'remittance'),
+            ('invoice_amount', 'invoice'),
+            ('payment_amount', 'payment'),
+        ]:
+            amt = record.get(amt_field)
+            if amt is None:
+                continue
+            tolerance = amt * 0.01
+            lo, hi = amt - tolerance, amt + tolerance
+            for other_field, other_label in [
+                ('remittance_amount', 'remittance'),
+                ('invoice_amount', 'invoice'),
+                ('payment_amount', 'payment'),
+            ]:
+                if other_label == src_label:
+                    continue
+                if record.get(other_field) is not None:
+                    continue
+                rows = conn.execute(f"""
+                    SELECT * FROM reconciliation_records
+                    WHERE nvc_code != ? AND {other_field} BETWEEN ? AND ?
+                    LIMIT 10
+                """, (nvc_code, lo, hi)).fetchall()
+                for r in rows:
+                    rk = r['nvc_code']
+                    if rk in seen:
+                        continue
+                    seen.add(rk)
+                    confidence = 0.7
+                    if record.get('invoice_tenant') and r['invoice_tenant'] == record.get('invoice_tenant'):
+                        confidence += 0.15
+                    suggestions.append({
+                        'nvc_code': rk,
+                        'reason': f"Amount match ({other_label}: {r[other_field]:.2f})",
+                        'confidence': round(confidence, 2),
+                        'record': dict(r),
+                    })
+
+        # Fuzzy NVC code match (prefix)
+        if len(nvc_code) > 4:
+            prefix = nvc_code[:len(nvc_code) - 2]
+            rows = conn.execute(
+                "SELECT * FROM reconciliation_records WHERE nvc_code LIKE ? AND nvc_code != ? LIMIT 10",
+                (f"{prefix}%", nvc_code)
+            ).fetchall()
+            for r in rows:
+                rk = r['nvc_code']
+                if rk in seen:
+                    continue
+                seen.add(rk)
+                suggestions.append({
+                    'nvc_code': rk,
+                    'reason': f"Similar NVC code ({rk})",
+                    'confidence': 0.5,
+                    'record': dict(r),
+                })
+
+    suggestions.sort(key=lambda x: x['confidence'], reverse=True)
+    return suggestions[:5]
 
 
 # Initialize on import
