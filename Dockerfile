@@ -13,9 +13,11 @@ RUN pnpm build
 FROM python:3.12-slim
 WORKDIR /app
 
-# System deps
+# System deps (use Node 22 from nodesource instead of ancient Debian nodejs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev curl nodejs npm \
+    libpq-dev curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps
@@ -32,7 +34,6 @@ COPY static/ ./static/
 COPY --from=frontend-build /app/frontend/.next ./frontend/.next
 COPY --from=frontend-build /app/frontend/node_modules ./frontend/node_modules
 COPY --from=frontend-build /app/frontend/package.json ./frontend/package.json
-COPY --from=frontend-build /app/frontend/public ./frontend/public 2>/dev/null || true
 COPY frontend/next.config.ts ./frontend/
 COPY frontend/postcss.config.mjs ./frontend/
 COPY frontend/tsconfig.json ./frontend/
