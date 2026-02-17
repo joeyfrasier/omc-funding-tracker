@@ -5,9 +5,6 @@ import time
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import List, Dict, Optional
-from sshtunnel import SSHTunnelForwarder
-import psycopg2
-import psycopg2.extras
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -85,6 +82,8 @@ def get_connection():
 @contextmanager
 def _connect_direct():
     """Direct DB connection (e.g. through autossh tunnel on host)."""
+    import psycopg2
+    import psycopg2.extras
     logger.info("Connecting directly to %s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
     conn = psycopg2.connect(
         host=DB_HOST,
@@ -105,6 +104,9 @@ def _connect_direct():
 def _connect_via_tunnel():
     """DB connection via SSH tunnel (local dev)."""
     import socket
+    import psycopg2
+    import psycopg2.extras
+    from sshtunnel import SSHTunnelForwarder
     old_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(DB_CONNECT_TIMEOUT)
     logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)

@@ -8,11 +8,9 @@ Uses all-MiniLM-L6-v2 (384-dim) embeddings via Zvec to match:
 Zero external dependencies beyond zvec + numpy (both already installed).
 """
 import logging
-import sqlite3
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 
@@ -156,19 +154,17 @@ class VectorMatcher:
 
 # ── OFM-Specific Functions ─────────────────────────────────────────────
 
-RECON_DB_PATH = Path('data/recon.db')
+from recon_db import _get_conn, RECON_DB_PATH
 
 
 def build_remittance_index() -> VectorMatcher:
     """Build a vector index from reconciliation records' remittance sources."""
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
-        SELECT DISTINCT remittance_source, remittance_email_id, remittance_date
-        FROM reconciliation_records
-        WHERE remittance_source IS NOT NULL AND remittance_source != ''
-    """).fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT DISTINCT remittance_source, remittance_email_id, remittance_date
+            FROM reconciliation_records
+            WHERE remittance_source IS NOT NULL AND remittance_source != ''
+        """).fetchall()
 
     matcher = VectorMatcher()
     if rows:
@@ -181,14 +177,12 @@ def build_remittance_index() -> VectorMatcher:
 
 def build_payrun_index() -> VectorMatcher:
     """Build a vector index from cached pay run references."""
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
-        SELECT id, reference, tenant, total_amount, status
-        FROM cached_payruns
-        WHERE reference IS NOT NULL AND reference != ''
-    """).fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT id, reference, tenant, total_amount, status
+            FROM cached_payruns
+            WHERE reference IS NOT NULL AND reference != ''
+        """).fetchall()
 
     matcher = VectorMatcher()
     if rows:
@@ -205,25 +199,22 @@ def match_received_payments() -> List[dict]:
     
     Returns list of suggested matches with scores.
     """
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
+    with _get_conn() as conn:
+        # Get unmatched received payments
+        unmatched = conn.execute("""
+            SELECT id, payer_name, amount, payment_date, account_name
+            FROM received_payments
+            WHERE match_status = 'unmatched' AND payer_name IS NOT NULL
+        """).fetchall()
 
-    # Get unmatched received payments
-    unmatched = conn.execute("""
-        SELECT id, payer_name, amount, payment_date, account_name
-        FROM received_payments
-        WHERE match_status = 'unmatched' AND payer_name IS NOT NULL
-    """).fetchall()
-
-    # Get remittance sources as candidates
-    remittances = conn.execute("""
-        SELECT DISTINCT remittance_source, remittance_email_id, 
-               SUM(remittance_amount) as total_amount, remittance_date
-        FROM reconciliation_records
-        WHERE remittance_source IS NOT NULL AND remittance_source != ''
-        GROUP BY remittance_source
-    """).fetchall()
-    conn.close()
+        # Get remittance sources as candidates
+        remittances = conn.execute("""
+            SELECT DISTINCT remittance_source, remittance_email_id,
+                   SUM(remittance_amount) as total_amount, remittance_date
+            FROM reconciliation_records
+            WHERE remittance_source IS NOT NULL AND remittance_source != ''
+            GROUP BY remittance_source
+        """).fetchall()
 
     if not unmatched or not remittances:
         return []
@@ -272,14 +263,12 @@ def find_anomalous_payments(threshold: float = 2.0) -> List[dict]:
     Args:
         threshold: Z-score threshold for flagging anomalies (default 2.0 = ~95th percentile)
     """
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
-        SELECT nvc_code, remittance_source, invoice_tenant, remittance_amount
-        FROM reconciliation_records
-        WHERE remittance_source IS NOT NULL AND invoice_tenant IS NOT NULL
-    """).fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT nvc_code, remittance_source, invoice_tenant, remittance_amount
+            FROM reconciliation_records
+            WHERE remittance_source IS NOT NULL AND invoice_tenant IS NOT NULL
+        """).fetchall()
 
     if len(rows) < 10:
         return []
@@ -326,15 +315,13 @@ def find_potential_duplicates(min_score: float = 0.92) -> List[dict]:
     
     Records with very similar descriptions + close amounts may be duplicates.
     """
-    conn = sqlite3.connect(str(RECON_DB_PATH))
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("""
-        SELECT nvc_code, remittance_source, remittance_amount, invoice_tenant
-        FROM reconciliation_records
-        WHERE remittance_source IS NOT NULL
-        ORDER BY remittance_source
-    """).fetchall()
-    conn.close()
+    with _get_conn() as conn:
+        rows = conn.execute("""
+            SELECT nvc_code, remittance_source, remittance_amount, invoice_tenant
+            FROM reconciliation_records
+            WHERE remittance_source IS NOT NULL
+            ORDER BY remittance_source
+        """).fetchall()
 
     if len(rows) < 2:
         return []

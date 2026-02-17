@@ -53,9 +53,9 @@
 - Handle GBP/EUR remittances (currently assumes USD)
 - Cross-reference with MoneyCorp FX rates
 
-#### vector_matcher.py Cleanup
-- 5 raw `sqlite3.connect()` calls remain in vector_matcher.py
-- Should use `recon_db._get_conn()` context manager
+#### ~~vector_matcher.py Cleanup~~ DONE
+- ~~5 raw `sqlite3.connect()` calls remain in vector_matcher.py~~
+- Migrated to `recon_db._get_conn()` context manager
 
 ### Low Priority
 

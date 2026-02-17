@@ -247,3 +247,38 @@ This meant `reconciler.py` was summing "Paid" invoices using `status == 5`, whic
 | `sync_service.py` | Fixed `run_funding_matcher()` — uses helpers, no raw sqlite3 |
 | `Dockerfile` | Added `COPY routers/` |
 | `requirements.txt` | Removed streamlit/pandas, pinned all deps |
+
+---
+
+## Phase 4: Polish (2026-02-17)
+
+### Task 16: Fix test suite — lazy-import sshtunnel/psycopg2
+**Status:** DONE
+**Problem:** `test_matcher.py` failed to collect because `db_client.py` imported `sshtunnel` and `psycopg2` at module level. These aren't installed in local dev (only in Docker), so tests couldn't even start.
+
+**Changes:**
+- `db_client.py`: Moved `from sshtunnel import SSHTunnelForwarder` from module level to inside `_connect_via_tunnel()`
+- `db_client.py`: Moved `import psycopg2` + `import psycopg2.extras` into `_connect_direct()` and `_connect_via_tunnel()`
+- Tests now import `db_client` cleanly without needing these heavy deps
+
+---
+
+### Task 17: Clean up vector_matcher.py raw sqlite3 calls
+**Status:** DONE
+**Problem:** 5 raw `sqlite3.connect()` calls with manual `conn.close()` — inconsistent with the rest of the codebase which uses `recon_db._get_conn()` context manager.
+
+**Changes:**
+- `vector_matcher.py`: Removed `import sqlite3` and `from pathlib import Path`
+- `vector_matcher.py`: Added `from recon_db import _get_conn, RECON_DB_PATH`
+- Replaced all 5 `sqlite3.connect()` / `conn.close()` pairs with `with _get_conn() as conn:` blocks
+- Removed unused `Tuple` from typing imports
+- Functions updated: `build_remittance_index()`, `build_payrun_index()`, `match_received_payments()`, `find_anomalous_payments()`, `find_potential_duplicates()`
+
+---
+
+## Phase 4 Files Modified
+
+| File | Changes |
+|------|---------|
+| `db_client.py` | Lazy-import sshtunnel, psycopg2 (only when connection is opened) |
+| `vector_matcher.py` | 5 raw sqlite3 calls → `recon_db._get_conn()` context manager |
