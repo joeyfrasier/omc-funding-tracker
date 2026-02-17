@@ -37,11 +37,35 @@ OMC_TENANTS = [
 ]
 
 
+SSH_TUNNEL_DISABLED = os.getenv('SSH_TUNNEL_DISABLED', '').lower() in ('true', '1', 'yes')
+
+
 @contextmanager
 def get_connection():
-    """Get a DB connection through SSH tunnel."""
+    """Get a DB connection — direct or via SSH tunnel."""
+    if SSH_TUNNEL_DISABLED:
+        # Direct connection (e.g. through autossh tunnel on host)
+        logger.info("Connecting directly to %s:%s/%s (SSH tunnel disabled)", DB_HOST, DB_PORT, DB_NAME)
+        try:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                connect_timeout=10,
+            )
+            logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
+            yield conn
+            conn.close()
+        except Exception as e:
+            logger.error("Database connection failed: %s", e, exc_info=True)
+            raise
+        return
+
+    # SSH tunnel mode (local dev)
     import socket
-    socket.setdefaulttimeout(10)  # Global 10s timeout for SSH connection
+    socket.setdefaulttimeout(10)
     logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)
     try:
         tunnel = SSHTunnelForwarder(
@@ -53,7 +77,7 @@ def get_connection():
         )
         tunnel.start()
     finally:
-        socket.setdefaulttimeout(None)  # Reset
+        socket.setdefaulttimeout(None)
     logger.info("SSH tunnel established on local port %d", tunnel.local_bind_port)
     try:
         conn = psycopg2.connect(
