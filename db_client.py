@@ -5,6 +5,8 @@ import time
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import List, Dict, Optional
+import psycopg2
+import psycopg2.extras
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -55,45 +57,43 @@ def _decimals_to_float(row: dict) -> dict:
 
 @contextmanager
 def get_connection():
-    """Get a DB connection — direct or via SSH tunnel.
+    """Get a DB connection — direct or via SSH tunnel."""
+    if SSH_TUNNEL_DISABLED:
+        with _connect_direct() as conn:
+            yield conn
+    else:
+        with _connect_via_tunnel() as conn:
+            yield conn
 
-    Retries up to DB_MAX_RETRIES times with exponential backoff.
-    """
+
+@contextmanager
+def _connect_direct():
+    """Direct DB connection with retry."""
     last_error = None
     for attempt in range(1, DB_MAX_RETRIES + 1):
         try:
-            ctx = _connect_direct() if SSH_TUNNEL_DISABLED else _connect_via_tunnel()
-            with ctx as conn:
-                yield conn
-            return
+            logger.info("Connecting directly to %s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                connect_timeout=DB_CONNECT_TIMEOUT,
+            )
+            break
         except Exception as e:
             last_error = e
             if attempt < DB_MAX_RETRIES:
-                wait = 2 ** (attempt - 1)  # 1s, 2s
+                wait = 2 ** (attempt - 1)
                 logger.warning("DB connection attempt %d/%d failed: %s — retrying in %ds",
                                attempt, DB_MAX_RETRIES, e, wait)
                 time.sleep(wait)
             else:
                 logger.error("DB connection failed after %d attempts: %s", DB_MAX_RETRIES, e)
-    raise last_error
-
-
-@contextmanager
-def _connect_direct():
-    """Direct DB connection (e.g. through autossh tunnel on host)."""
-    import psycopg2
-    import psycopg2.extras
-    logger.info("Connecting directly to %s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        connect_timeout=DB_CONNECT_TIMEOUT,
-    )
+                raise
+    logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
     try:
-        logger.info("Database connection established to %s/%s", DB_HOST, DB_NAME)
         yield conn
     finally:
         conn.close()
@@ -101,26 +101,35 @@ def _connect_direct():
 
 @contextmanager
 def _connect_via_tunnel():
-    """DB connection via SSH tunnel (local dev)."""
+    """DB connection via SSH tunnel with retry."""
     import socket
-    import psycopg2
-    import psycopg2.extras
     from sshtunnel import SSHTunnelForwarder
     old_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(DB_CONNECT_TIMEOUT)
     logger.info("Opening SSH tunnel to %s via bastion %s", DB_HOST, SSH_BASTION)
-    try:
-        tunnel = SSHTunnelForwarder(
-            (SSH_BASTION, int(os.getenv('SSH_BASTION_PORT', 22))),
-            ssh_username='ec2-user',
-            ssh_pkey=SSH_KEY,
-            remote_bind_address=(DB_HOST, DB_PORT),
-            set_keepalive=10,
-        )
-        tunnel.start()
-    except Exception:
-        socket.setdefaulttimeout(old_timeout)
-        raise
+    last_error = None
+    for attempt in range(1, DB_MAX_RETRIES + 1):
+        try:
+            tunnel = SSHTunnelForwarder(
+                (SSH_BASTION, int(os.getenv('SSH_BASTION_PORT', 22))),
+                ssh_username='ec2-user',
+                ssh_pkey=SSH_KEY,
+                remote_bind_address=(DB_HOST, DB_PORT),
+                set_keepalive=10,
+            )
+            tunnel.start()
+            break
+        except Exception as e:
+            last_error = e
+            if attempt < DB_MAX_RETRIES:
+                wait = 2 ** (attempt - 1)
+                logger.warning("SSH tunnel attempt %d/%d failed: %s — retrying in %ds",
+                               attempt, DB_MAX_RETRIES, e, wait)
+                time.sleep(wait)
+            else:
+                socket.setdefaulttimeout(old_timeout)
+                logger.error("SSH tunnel failed after %d attempts: %s", DB_MAX_RETRIES, e)
+                raise
     socket.setdefaulttimeout(old_timeout)
     logger.info("SSH tunnel established on local port %d", tunnel.local_bind_port)
     try:
