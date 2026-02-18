@@ -77,7 +77,7 @@ def sync_invoices():
 
     count = 0
     try:
-        payments = get_omc_payments(days_back=60)
+        payments = get_omc_payments(days_back=141)
         logger.info("sync_invoices: fetched %d payments", len(payments))
 
         for p in payments:
@@ -116,7 +116,7 @@ def sync_invoices():
 
         # Also cache pay runs
         try:
-            payruns = get_omc_payruns(days_back=60)
+            payruns = get_omc_payruns(days_back=141)
             cache_payruns([{
                 'id': pr.get('id'),
                 'reference': pr.get('reference'),
