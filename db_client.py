@@ -62,10 +62,9 @@ def get_connection():
     last_error = None
     for attempt in range(1, DB_MAX_RETRIES + 1):
         try:
-            if SSH_TUNNEL_DISABLED:
-                yield from _connect_direct()
-            else:
-                yield from _connect_via_tunnel()
+            ctx = _connect_direct() if SSH_TUNNEL_DISABLED else _connect_via_tunnel()
+            with ctx as conn:
+                yield conn
             return
         except Exception as e:
             last_error = e

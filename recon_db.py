@@ -59,9 +59,16 @@ def init_recon_db():
                 invoice_tenant TEXT,
                 invoice_payrun_ref TEXT,
                 invoice_currency TEXT,
-                funding_amount REAL,
-                funding_account_id TEXT,
-                funding_date TEXT,
+                payment_amount REAL,
+                payment_account_id TEXT,
+                payment_date TEXT,
+                payment_currency TEXT,
+                payment_status TEXT,
+                payment_recipient TEXT,
+                payment_recipient_country TEXT,
+                received_payment_id TEXT,
+                received_payment_amount REAL,
+                received_payment_date TEXT,
                 match_status TEXT DEFAULT 'unmatched',
                 match_flags TEXT DEFAULT '[]',
                 first_seen_at TEXT NOT NULL,
@@ -681,6 +688,22 @@ def _migrate_4way_columns():
                     logger.info("Renamed column %s → %s", old_col, new_col)
 
             # Re-read columns after renames
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
+
+            # Ensure payment_* columns exist (may be missing if DB was created
+            # before these were added to the schema)
+            payment_cols = {
+                'payment_currency': 'TEXT',
+                'payment_status': 'TEXT',
+                'payment_recipient': 'TEXT',
+                'payment_recipient_country': 'TEXT',
+            }
+            for col, dtype in payment_cols.items():
+                if col not in cols:
+                    conn.execute(f"ALTER TABLE reconciliation_records ADD COLUMN {col} {dtype}")
+                    logger.info("Added missing column %s", col)
+
+            # Re-read columns after additions
             cols = [r[1] for r in conn.execute("PRAGMA table_info(reconciliation_records)").fetchall()]
 
             # Add received payment columns (incoming funding)
