@@ -76,12 +76,14 @@ def overview(days: int = Query(7, ge=1, le=365)):
 
     recon_total = recon_summary_data.get('total', 0)
     if recon_total > 0:
-        three_way_matched = recon_summary_data.get('full_4way', 0)
-        two_way_matched = (recon_summary_data.get('2way_matched', 0) +
-                           recon_summary_data.get('3way_awaiting_payment', 0) +
-                           recon_summary_data.get('3way_no_funding', 0) +
+        # Use matchable_total as denominator — excludes New (prematch) and Rejected (terminal)
+        matchable_total = recon_summary_data.get('matchable_total', recon_total)
+        three_way_matched = recon_summary_data.get('matchable_full_4way', 0)
+        two_way_matched = (recon_summary_data.get('matchable_2way_matched', 0) +
+                           recon_summary_data.get('matchable_3way_awaiting_payment', 0) +
+                           recon_summary_data.get('matchable_3way_no_funding', 0) +
                            three_way_matched)
-        total_to_verify = recon_total
+        total_to_verify = matchable_total
         mismatched_count = recon_summary_data.get('amount_mismatch', 0)
     else:
         two_way_matched = recon_stats["matched"]
@@ -91,7 +93,7 @@ def overview(days: int = Query(7, ge=1, le=365)):
 
     match_rate_3way = (three_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
     match_rate_2way = (two_way_matched / total_to_verify * 100) if total_to_verify > 0 else 0
-    unverified = total_to_verify - three_way_matched
+    unverified = total_to_verify - two_way_matched
 
     # Agency breakdown
     try:
@@ -119,10 +121,11 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "matched_2way": two_way_matched,
         "matched": two_way_matched,
         "mismatched": mismatched_count if recon_total > 0 else recon_stats["mismatched"],
-        "not_found": (recon_summary_data.get('remittance_only', 0) + recon_summary_data.get('invoice_only', 0))
+        "not_found": (recon_summary_data.get('matchable_remittance_only', 0) + recon_summary_data.get('matchable_invoice_only', 0))
                      if recon_total > 0 else recon_stats["not_found"],
         "unverified": unverified,
         "total_lines": total_to_verify,
+        "total_records": recon_total,
         "total_value": recon_stats.get("total_value", 0),
         "total_emails": recon_stats["total_emails"],
         "total_remittances": recon_stats["total_remittances"],

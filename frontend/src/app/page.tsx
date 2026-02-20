@@ -762,7 +762,7 @@ function OverviewTab() {
         </div>
         {data && ((data.excluded_prematch || 0) > 0 || (data.excluded_terminal || 0) > 0) && (
           <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
-            <span>{data.total_lines} total records</span>
+            <span>{data.total_records || data.total_lines} total records</span>
             {(data.excluded_prematch || 0) > 0 && <span>{data.excluded_prematch} New (pre-match)</span>}
             {(data.excluded_terminal || 0) > 0 && <span>{data.excluded_terminal} Rejected</span>}
             {(data.anomaly_rejected_with_funding || 0) > 0 && (

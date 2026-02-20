@@ -50,6 +50,7 @@ export interface OverviewData {
   services: Record<string, string>;
   sync?: Record<string, string>;
   funding_count?: number;
+  total_records?: number;
   matchable_total?: number;
   excluded_prematch?: number;
   excluded_terminal?: number;
