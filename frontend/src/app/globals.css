@@ -20,14 +20,14 @@
 /* ── Typography ──────────────────────────────────────────────────────── */
 
 body {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Terrane Sans', sans-serif;
   color: #000;
   background: #fff;
   -webkit-font-smoothing: antialiased;
 }
 
 .font-display {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: 'Trust Serif', Georgia, serif;
 }
 
 /* ── Section Labels ──────────────────────────────────────────────────── */
@@ -45,7 +45,7 @@ body {
 .btn {
   padding: 10px 28px;
   border-radius: 999px;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Terrane Sans', sans-serif;
   font-size: 14px;
   font-weight: 600;
   border: none;

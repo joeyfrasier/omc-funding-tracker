@@ -59,7 +59,7 @@ export default function Header({ onSearch, onOpenSettings }: HeaderProps) {
     <header className="border-b-2 border-[var(--color-ws-gray)] pb-4 mb-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <span className="text-2xl font-[900] tracking-tight text-black" style={{ fontFamily: "'Archivo', sans-serif" }}>
+          <span className="text-2xl font-[900] tracking-tight text-black" style={{ fontFamily: "'Terrane Sans', sans-serif" }}>
             Worksuite
           </span>
           <div className="w-px h-6 bg-[var(--color-ws-gray)]" />
