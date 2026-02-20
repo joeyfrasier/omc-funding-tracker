@@ -57,16 +57,21 @@ def recon_queue(
     flag: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     invoice_status: Optional[str] = Query(None),
+    exclude_prematch: bool = Query(True),
     sort_by: str = Query("last_updated_at"),
     sort_dir: str = Query("desc"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """Get reconciliation queue — records sorted by priority."""
+    """Get reconciliation queue — records sorted by priority.
+
+    exclude_prematch: when True (default), hides New/Rejected invoices from the
+    queue unless they are anomalies (rejected with funding).
+    """
     records, total = recon_db.get_recon_queue(
         status=status, tenant=tenant, flag=flag, search=search,
-        invoice_status=invoice_status, sort_by=sort_by, sort_dir=sort_dir,
-        limit=limit, offset=offset,
+        invoice_status=invoice_status, exclude_prematch=exclude_prematch,
+        sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset,
     )
     return {"records": records, "total": total}
 

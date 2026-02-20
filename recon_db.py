@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
+from db_client import MATCHABLE_STATUSES, PREMATCH_STATUSES, TERMINAL_STATUSES
+
 logger = logging.getLogger(__name__)
 
 RECON_DB_PATH = Path('data/recon.db')
@@ -442,6 +444,17 @@ def recalculate_match_status(nvc_code: str):
         else:
             status = 'unmatched'
 
+        # Invoice status tier flags
+        inv_status = row.get('invoice_status') or ''
+        if inv_status in PREMATCH_STATUSES:
+            flags.append('prematch_status')
+        elif inv_status in TERMINAL_STATUSES:
+            has_funding_or_payment = has_funding or has_payment
+            if has_funding_or_payment:
+                flags.append('rejected_with_funding')
+            else:
+                flags.append('terminal_status')
+
         conn.execute(
             "UPDATE reconciliation_records SET match_status = ?, match_flags = ?, last_updated_at = ? WHERE nvc_code = ?",
             (status, json.dumps(flags), _now(), nvc_code)
@@ -501,15 +514,54 @@ def get_recon_record(nvc_code: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def get_recon_summary() -> Dict[str, int]:
-    """Get counts by match_status."""
+def get_recon_summary() -> Dict[str, Any]:
+    """Get counts by match_status, plus matchable/excluded breakdowns."""
     with _get_conn() as conn:
         rows = conn.execute(
             "SELECT match_status, COUNT(*) as cnt FROM reconciliation_records GROUP BY match_status"
         ).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM reconciliation_records").fetchone()[0]
-    summary = {r['match_status']: r['cnt'] for r in rows}
+
+        # Matchable = invoice_status in MATCHABLE_STATUSES (or NULL, for remittance-only records)
+        matchable_statuses = tuple(MATCHABLE_STATUSES)
+        matchable_rows = conn.execute(
+            "SELECT match_status, COUNT(*) as cnt FROM reconciliation_records "
+            "WHERE invoice_status IN ({}) OR invoice_status IS NULL "
+            "GROUP BY match_status".format(','.join('?' * len(matchable_statuses))),
+            matchable_statuses,
+        ).fetchall()
+        matchable_total = conn.execute(
+            "SELECT COUNT(*) FROM reconciliation_records "
+            "WHERE invoice_status IN ({}) OR invoice_status IS NULL".format(','.join('?' * len(matchable_statuses))),
+            matchable_statuses,
+        ).fetchone()[0]
+
+        excluded_prematch = conn.execute(
+            "SELECT COUNT(*) FROM reconciliation_records WHERE invoice_status IN ({})"
+            .format(','.join('?' * len(PREMATCH_STATUSES))),
+            tuple(PREMATCH_STATUSES),
+        ).fetchone()[0]
+
+        excluded_terminal = conn.execute(
+            "SELECT COUNT(*) FROM reconciliation_records WHERE invoice_status IN ({})"
+            .format(','.join('?' * len(TERMINAL_STATUSES))),
+            tuple(TERMINAL_STATUSES),
+        ).fetchone()[0]
+
+        anomaly_rejected_with_funding = conn.execute(
+            "SELECT COUNT(*) FROM reconciliation_records WHERE match_flags LIKE '%rejected_with_funding%'"
+        ).fetchone()[0]
+
+    summary: Dict[str, Any] = {r['match_status']: r['cnt'] for r in rows}
     summary['total'] = total
+
+    # Matchable breakdown
+    for r in matchable_rows:
+        summary[f'matchable_{r["match_status"]}'] = r['cnt']
+    summary['matchable_total'] = matchable_total
+    summary['excluded_prematch'] = excluded_prematch
+    summary['excluded_terminal'] = excluded_terminal
+    summary['anomaly_rejected_with_funding'] = anomaly_rejected_with_funding
     return summary
 
 
@@ -728,15 +780,30 @@ def get_recon_queue(
     flag: Optional[str] = None,
     search: Optional[str] = None,
     invoice_status: Optional[str] = None,
+    exclude_prematch: bool = True,
     sort_by: str = 'last_updated_at',
     sort_dir: str = 'desc',
     limit: int = 100,
     offset: int = 0,
 ) -> tuple:
-    """Get reconciliation queue with priority ordering. Returns (records, total)."""
+    """Get reconciliation queue with priority ordering. Returns (records, total).
+
+    When exclude_prematch=True (default), New and Rejected invoices are hidden
+    unless they are anomalies (rejected with funding).
+    """
     with _get_conn() as conn:
         conditions: list = []
         params: list = []
+
+        if exclude_prematch and not invoice_status:
+            excluded = tuple(PREMATCH_STATUSES | TERMINAL_STATUSES)
+            placeholders = ','.join('?' * len(excluded))
+            # Keep records where invoice_status is matchable, NULL, or anomaly (rejected_with_funding)
+            conditions.append(
+                f"(invoice_status NOT IN ({placeholders}) OR invoice_status IS NULL "
+                f"OR match_flags LIKE '%rejected_with_funding%')"
+            )
+            params.extend(excluded)
 
         if status:
             conditions.append("match_status = ?")
@@ -784,27 +851,40 @@ def get_recon_queue(
 
 
 def get_agency_stats() -> List[Dict[str, Any]]:
-    """Get reconciliation stats grouped by tenant for the overview dashboard."""
+    """Get reconciliation stats grouped by tenant for the overview dashboard.
+
+    Excludes New (prematch) and Rejected (terminal) invoices from reconciled/unreconciled
+    counts unless they are anomalies (rejected with funding).
+    """
+    excluded = tuple(PREMATCH_STATUSES | TERMINAL_STATUSES)
+    placeholders = ','.join('?' * len(excluded))
     with _get_conn() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT invoice_tenant,
                    COUNT(*) as total_records,
-                   SUM(CASE WHEN match_status IN ('full_4way', '3way_awaiting_payment', '3way_no_funding', '2way_matched') THEN 1 ELSE 0 END) as reconciled,
-                   SUM(CASE WHEN match_status = 'full_4way' THEN 1 ELSE 0 END) as full_4way,
-                   SUM(CASE WHEN match_status IN ('amount_mismatch', 'invoice_only', 'remittance_only', 'payment_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
+                   SUM(CASE WHEN invoice_status NOT IN ({placeholders}) OR invoice_status IS NULL THEN 1 ELSE 0 END) as matchable_records,
+                   SUM(CASE WHEN (invoice_status NOT IN ({placeholders}) OR invoice_status IS NULL)
+                        AND match_status IN ('full_4way', '3way_awaiting_payment', '3way_no_funding', '2way_matched') THEN 1 ELSE 0 END) as reconciled,
+                   SUM(CASE WHEN (invoice_status NOT IN ({placeholders}) OR invoice_status IS NULL)
+                        AND match_status = 'full_4way' THEN 1 ELSE 0 END) as full_4way,
+                   SUM(CASE WHEN (invoice_status NOT IN ({placeholders}) OR invoice_status IS NULL)
+                        AND match_status IN ('amount_mismatch', 'invoice_only', 'remittance_only', 'payment_only', 'unmatched') THEN 1 ELSE 0 END) as unreconciled,
+                   SUM(CASE WHEN match_flags LIKE '%rejected_with_funding%' THEN 1 ELSE 0 END) as anomaly_count,
                    SUM(COALESCE(invoice_amount, 0)) as total_value
             FROM reconciliation_records
             WHERE invoice_tenant IS NOT NULL AND invoice_tenant != ''
             GROUP BY invoice_tenant
             ORDER BY total_value DESC
-        """).fetchall()
+        """, excluded * 4).fetchall()
     return [{
         'name': r['invoice_tenant'],
         'count': r['total_records'],
+        'matchable_count': r['matchable_records'],
         'total': r['total_value'],
         'reconciled_count': r['reconciled'],
         'full_4way_count': r['full_4way'],
         'unreconciled_count': r['unreconciled'],
+        'anomaly_count': r['anomaly_count'],
     } for r in rows]
 
 
@@ -964,7 +1044,58 @@ def find_amount_suggestions(nvc_code: str) -> List[Dict[str, Any]]:
     return suggestions[:5]
 
 
+def _migrate_fix_status_labels():
+    """One-time migration: fix invoice_status labels to match canonical shortlist-platform codes.
+
+    Old mapping was wrong (Draft/Processing/In Flight/Paid/Rejected/Cancelled).
+    Correct mapping: New/Approved/Paid/Rejected/Scheduled/Processing/In Flight.
+    Uses a single CASE statement to avoid double-mapping.
+    """
+    with _get_conn() as conn:
+        try:
+            # Check if migration is needed (look for old status values)
+            old_statuses = conn.execute(
+                "SELECT COUNT(*) FROM reconciliation_records WHERE invoice_status IN ('Draft', 'Cancelled')"
+            ).fetchone()[0]
+            old_cached = conn.execute(
+                "SELECT COUNT(*) FROM cached_invoices WHERE status_label IN ('Draft', 'Cancelled')"
+            ).fetchone()[0]
+
+            if old_statuses > 0:
+                conn.execute("""
+                    UPDATE reconciliation_records SET invoice_status = CASE invoice_status
+                        WHEN 'Draft' THEN 'New'
+                        WHEN 'Processing' THEN 'Paid'
+                        WHEN 'In Flight' THEN 'Rejected'
+                        WHEN 'Paid' THEN 'Scheduled'
+                        WHEN 'Rejected' THEN 'Processing'
+                        WHEN 'Cancelled' THEN 'In Flight'
+                        ELSE invoice_status
+                    END WHERE invoice_status IN ('Draft', 'Processing', 'In Flight', 'Paid', 'Rejected', 'Cancelled')
+                """)
+                logger.info("Migrated %d reconciliation_records.invoice_status labels", old_statuses)
+
+            if old_cached > 0:
+                conn.execute("""
+                    UPDATE cached_invoices SET status_label = CASE status_label
+                        WHEN 'Draft' THEN 'New'
+                        WHEN 'Processing' THEN 'Paid'
+                        WHEN 'In Flight' THEN 'Rejected'
+                        WHEN 'Paid' THEN 'Scheduled'
+                        WHEN 'Rejected' THEN 'Processing'
+                        WHEN 'Cancelled' THEN 'In Flight'
+                        ELSE status_label
+                    END WHERE status_label IN ('Draft', 'Processing', 'In Flight', 'Paid', 'Rejected', 'Cancelled')
+                """)
+                logger.info("Migrated %d cached_invoices.status_label labels", old_cached)
+
+            conn.commit()
+        except Exception as e:
+            logger.warning("Migration fix_status_labels: %s", e)
+
+
 # Initialize on import
 init_recon_db()
 _migrate_add_flag_columns()
 _migrate_4way_columns()
+_migrate_fix_status_labels()

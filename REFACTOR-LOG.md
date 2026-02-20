@@ -282,3 +282,46 @@ This meant `reconciler.py` was summing "Paid" invoices using `status == 5`, whic
 |------|---------|
 | `db_client.py` | Lazy-import sshtunnel, psycopg2 (only when connection is opened) |
 | `vector_matcher.py` | 5 raw sqlite3 calls → `recon_db._get_conn()` context manager |
+
+---
+
+## Phase 5: Status Mapping Fix & Tier Filtering (2026-02-19)
+
+### Task 18: Fix PAYMENT_STATUS mapping to match shortlist-platform canonical codes
+**Status:** DONE
+**Problem:** `db_client.py` PAYMENT_STATUS mapping was wrong — it didn't match the canonical codes from `shortlist-platform` (`pipeline/payments/common/model.py`). Every invoice status label stored in SQLite was incorrect for codes 0, 2, 3, 4, 5, 6. Only code 1 (Approved) was correct.
+
+| Code | Before (Wrong) | After (Correct) |
+|------|---------------|-----------------|
+| 0    | Draft         | New             |
+| 1    | Approved      | Approved        |
+| 2    | Processing    | Paid            |
+| 3    | In Flight     | Rejected        |
+| 4    | Paid          | Scheduled       |
+| 5    | Rejected      | Processing      |
+| 6    | Cancelled     | In Flight       |
+
+**Changes:**
+- `db_client.py`: Fixed PAYMENT_STATUS mapping, added MATCHABLE_STATUSES, PREMATCH_STATUSES, TERMINAL_STATUSES tier constants
+- `matcher.py`: Fixed status_issue check from `db_status in (5, 6)` → `db_status == 3` (was catching active payments instead of Rejected)
+- `recon_db.py`: Added `_migrate_fix_status_labels()` to backfill existing SQLite data using CASE statement
+- `recon_db.py`: `recalculate_match_status()` now adds invoice status tier flags (prematch_status, rejected_with_funding, terminal_status)
+- `recon_db.py`: `get_recon_summary()` returns matchable_total, excluded_prematch, excluded_terminal, anomaly counts
+- `recon_db.py`: `get_agency_stats()` excludes New/Rejected from reconciled/unreconciled counts
+- `recon_db.py`: `get_recon_queue()` new `exclude_prematch` param (default True) filters out New/Rejected, keeps rejected-with-funding anomalies
+- `frontend/page.tsx`: Fixed filter dropdown options (Draft→New, removed Cancelled, added Scheduled), updated badge color mappings
+- `tests/test_matcher.py`: Fixed status codes (5→3 for Rejected, 6→3, 4→2 for Paid)
+
+---
+
+## Phase 5 Files Modified
+
+| File | Changes |
+|------|---------|
+| `db_client.py` | Fixed PAYMENT_STATUS mapping, added tier constants |
+| `matcher.py` | Fixed status_issue code check (5,6 → 3) |
+| `recon_db.py` | Migration, match flags, summary/stats/queue tier filtering |
+| `frontend/src/app/page.tsx` | Fixed dropdown options, badge colors for new status names |
+| `tests/test_matcher.py` | Fixed status codes in tests |
+| `NEXT-STEPS.md` | Removed Docker deployment reference |
+| `REFACTOR-LOG.md` | Documented Phase 5 |

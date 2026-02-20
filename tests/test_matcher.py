@@ -98,12 +98,12 @@ class TestReconcileMatching:
 
 
 class TestStatusIssue:
-    """Test rejected/cancelled status override."""
+    """Test rejected status override."""
 
     @patch('matcher.lookup_payments_by_nvc')
     def test_rejected_status_overrides_match(self, mock_lookup):
         line = _make_line()
-        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(status=5)}  # Rejected
+        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(status=3)}  # Rejected
         report = reconcile(_make_remittance([line]))
 
         assert report.matched_count == 0  # Should NOT count as matched
@@ -111,9 +111,9 @@ class TestStatusIssue:
         assert report.matches[0].status == 'status_issue'
 
     @patch('matcher.lookup_payments_by_nvc')
-    def test_cancelled_status_overrides_mismatch(self, mock_lookup):
+    def test_rejected_status_overrides_mismatch(self, mock_lookup):
         line = _make_line(amt=Decimal('1000.00'))
-        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(amount=999.00, status=6)}  # Cancelled
+        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(amount=999.00, status=3)}  # Rejected
         report = reconcile(_make_remittance([line]))
 
         assert report.mismatched_count == 0  # Should NOT count as mismatched
@@ -123,7 +123,7 @@ class TestStatusIssue:
     @patch('matcher.lookup_payments_by_nvc')
     def test_paid_status_counts_normally(self, mock_lookup):
         line = _make_line()
-        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(status=4)}  # Paid
+        mock_lookup.return_value = {'NVC_TEST_001': _make_db_record(status=2)}  # Paid
         report = reconcile(_make_remittance([line]))
 
         assert report.matched_count == 1

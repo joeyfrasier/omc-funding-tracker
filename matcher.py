@@ -103,7 +103,7 @@ def reconcile(remittance: Remittance, tolerance: Decimal = Decimal('0.01')) -> R
             
             # Check for concerning statuses
             db_status = db_rec.get('status', -1)
-            if db_status in (5, 6):  # Rejected or Cancelled
+            if db_status == 3:  # Rejected
                 # Adjust counters: undo the matched/mismatched increment
                 if status == 'matched':
                     report.matched_count -= 1

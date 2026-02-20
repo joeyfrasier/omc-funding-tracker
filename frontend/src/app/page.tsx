@@ -183,11 +183,12 @@ function QueueTab() {
             onChange={(e) => setFilterInvStatus(e.target.value)}
           >
             <option value="">All</option>
+            <option value="Approved">Approved</option>
+            <option value="Scheduled">Scheduled</option>
             <option value="Processing">Processing</option>
             <option value="In Flight">In Flight</option>
-            <option value="Approved">Approved</option>
             <option value="Paid">Paid</option>
-            <option value="Draft">Draft</option>
+            <option value="New">New</option>
             <option value="Rejected">Rejected</option>
           </select>
         </div>
@@ -262,8 +263,11 @@ function QueueTab() {
                     {r.invoice_status ? (
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                         r.invoice_status === "Processing" || r.invoice_status === "In Flight" ? "bg-orange-100 text-[var(--color-ws-orange)]" :
+                        r.invoice_status === "Scheduled" ? "bg-blue-100 text-blue-700" :
                         r.invoice_status === "Paid" ? "bg-green-100 text-[var(--color-ws-green)]" :
+                        r.invoice_status === "Approved" ? "bg-yellow-100 text-yellow-700" :
                         r.invoice_status === "Rejected" ? "bg-red-100 text-red-700" :
+                        r.invoice_status === "New" ? "bg-gray-100 text-gray-500" :
                         "bg-gray-100 text-gray-600"
                       }`}>{r.invoice_status}</span>
                     ) : <span className="text-xs text-gray-300">—</span>}
@@ -1415,7 +1419,10 @@ function InvoicesTab() {
   const statusBadge = (s: string) => {
     if (s === "Paid") return "badge-green";
     if (s === "Processing" || s === "In Flight") return "badge-orange";
+    if (s === "Scheduled") return "bg-blue-100 text-blue-700";
+    if (s === "Approved") return "bg-yellow-100 text-yellow-700";
     if (s === "Rejected") return "bg-red-100 text-red-700";
+    if (s === "New") return "bg-gray-100 text-gray-500";
     return "badge-gray";
   };
 
@@ -1460,11 +1467,12 @@ function InvoicesTab() {
             onChange={(e) => setFilterStatus(e.target.value)}
           >
             <option value="">All Statuses</option>
+            <option value="Approved">Approved</option>
+            <option value="Scheduled">Scheduled</option>
             <option value="Processing">Processing</option>
             <option value="In Flight">In Flight</option>
-            <option value="Approved">Approved</option>
             <option value="Paid">Paid</option>
-            <option value="Draft">Draft</option>
+            <option value="New">New</option>
             <option value="Rejected">Rejected</option>
           </select>
         </div>

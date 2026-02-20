@@ -294,16 +294,21 @@ def get_tenant_funding_config() -> List[dict]:
         return [_decimals_to_float(dict(row)) for row in cur.fetchall()]
 
 
-# Payment status codes
+# Payment status codes (canonical — matches shortlist-platform pipeline/payments/common/model.py)
 PAYMENT_STATUS = {
-    0: 'Draft',
+    0: 'New',
     1: 'Approved',
-    2: 'Processing', 
-    3: 'In Flight',
-    4: 'Paid',
-    5: 'Rejected',
-    6: 'Cancelled',
+    2: 'Paid',
+    3: 'Rejected',
+    4: 'Scheduled',
+    5: 'Processing',
+    6: 'In Flight',
 }
+
+# Status tier classification for match-rate filtering
+MATCHABLE_STATUSES = {'Approved', 'Scheduled', 'Processing', 'In Flight', 'Paid'}
+PREMATCH_STATUSES = {'New'}
+TERMINAL_STATUSES = {'Rejected'}
 
 
 def status_label(code):

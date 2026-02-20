@@ -15,7 +15,6 @@
 - **Next.js dashboard** — Modern frontend with overview, reconciliation queue, search, payments
 - **Flask dashboard** — Legacy Gen 2 UI (still running, available on :8501)
 - **FastAPI API** — Modular REST API with 7 routers, consumed by Next.js frontend
-- **Docker deployment** — Multi-stage Dockerfile, deployed via Coolify
 - **Test suite** — 28 tests covering CSV parser, matcher, and recon_db
 
 ### Known Limitations
