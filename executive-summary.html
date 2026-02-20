@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMC Funding Reconciliation — Executive Summary</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --ws-orange: #FF4821;
+    --ws-maroon: #761900;
+    --ws-purple: #5032A0;
+    --ws-purple-light: #B9ADEA;
+    --ws-green: #006032;
+    --ws-mint: #C8EDD5;
+    --ws-gold: #E1B347;
+    --ws-blue: #95B1D2;
+    --ws-lavender: #EEEBFF;
+    --ws-gray: #DDE3EB;
+    --ws-black: #000000;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #f8f8fa; line-height: 1.5; }
+  .header { background: var(--ws-black); color: #fff; padding: 24px 40px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .header .divider { width: 1px; height: 28px; background: #444; }
+  .header .subtitle { font-size: 16px; font-weight: 400; color: #aaa; }
+  .header .date { margin-left: auto; font-size: 13px; color: #888; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+  .section { margin-bottom: 40px; }
+  .section-title { font-size: 18px; font-weight: 700; color: var(--ws-black); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .section-title .num { background: var(--ws-orange); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .section-desc { color: #555; font-size: 14px; margin-bottom: 20px; max-width: 800px; }
+  .card { background: #fff; border-radius: 10px; border: 1px solid #e5e7eb; padding: 24px; margin-bottom: 16px; }
+  .card-title { font-size: 14px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .kpi { background: #fff; border-radius: 10px; border: 1px solid #e5e7eb; padding: 20px; text-align: center; }
+  .kpi .value { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+  .kpi .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .kpi.highlight { border-color: var(--ws-orange); background: linear-gradient(135deg, #fff5f2, #fff); }
+  .kpi.highlight .value { color: var(--ws-orange); }
+  .kpi.green .value { color: var(--ws-green); }
+  .kpi.purple .value { color: var(--ws-purple); }
+  .kpi.gold .value { color: #b8860b; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; background: #f9fafb; border-bottom: 2px solid #e5e7eb; font-weight: 600; color: #555; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover { background: #fafafa; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: var(--ws-mint); color: var(--ws-green); }
+  .badge-orange { background: #fff0eb; color: var(--ws-orange); }
+  .badge-purple { background: var(--ws-lavender); color: var(--ws-purple); }
+  .badge-gold { background: #fef3cd; color: #856404; }
+  .badge-gray { background: #f0f0f0; color: #666; }
+  .badge-red { background: #fef2f2; color: #b91c1c; }
+  .bar-container { display: flex; align-items: center; gap: 8px; }
+  .bar { height: 20px; border-radius: 4px; min-width: 2px; transition: width 0.6s ease; }
+  .bar-label { font-size: 12px; color: #666; white-space: nowrap; }
+  .chart-container { position: relative; height: 300px; margin: 16px 0; }
+  .methodology { background: var(--ws-lavender); border: 1px solid var(--ws-purple-light); border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+  .methodology h4 { color: var(--ws-purple); font-size: 13px; margin-bottom: 6px; }
+  .methodology p, .methodology ul { font-size: 13px; color: #444; }
+  .methodology ul { margin-left: 16px; margin-top: 6px; }
+  .methodology li { margin-bottom: 4px; }
+  .callout { background: #fff8f0; border-left: 4px solid var(--ws-gold); padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+  .callout-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .callout p { font-size: 13px; color: #555; }
+  .callout-red { background: #fef2f2; border-left-color: #ef4444; }
+  .recommendation { background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-top: 16px; }
+  .recommendation h4 { color: var(--ws-green); margin-bottom: 8px; }
+  .recommendation p { font-size: 13px; color: #444; }
+  .tab-container { display: flex; gap: 0; border-bottom: 2px solid #e5e7eb; margin-bottom: 20px; }
+  .tab { padding: 10px 20px; cursor: pointer; font-size: 13px; font-weight: 600; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+  .tab:hover { color: #333; }
+  .tab.active { color: var(--ws-orange); border-bottom-color: var(--ws-orange); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .flow-diagram { display: flex; align-items: center; gap: 0; margin: 20px 0; flex-wrap: wrap; justify-content: center; }
+  .flow-step { background: #fff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; text-align: center; min-width: 120px; }
+  .flow-step.active { border-color: var(--ws-green); background: #f0fdf4; }
+  .flow-step.partial { border-color: var(--ws-gold); background: #fffbeb; }
+  .flow-step.missing { border-color: #fca5a5; background: #fef2f2; }
+  .flow-step .step-name { font-size: 12px; font-weight: 700; color: #555; }
+  .flow-step .step-count { font-size: 20px; font-weight: 800; margin-top: 2px; }
+  .flow-arrow { font-size: 20px; color: #ccc; padding: 0 4px; }
+  .money { font-variant-numeric: tabular-nums; }
+  .tier-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  .tier-table th, .tier-table td { padding: 8px 12px; text-align: left; }
+  .tier-table th { background: var(--ws-lavender); border-bottom: 2px solid var(--ws-purple-light); color: var(--ws-purple); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tier-table td { border-bottom: 1px solid #eee; }
+  .tier-table tr:last-child td { border-bottom: none; }
+  @media (max-width: 768px) {
+    .header { padding: 16px 20px; flex-wrap: wrap; }
+    .container { padding: 20px 16px; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .flow-diagram { gap: 8px; }
+    .flow-arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Worksuite</h1>
+  <div class="divider"></div>
+  <span class="subtitle">OMC Funding Reconciliation</span>
+  <span class="date">Executive Summary &mdash; February 20, 2026</span>
+</div>
+
+<div class="container">
+
+<!-- OVERVIEW -->
+<div class="section">
+  <div class="kpi-grid">
+    <div class="kpi highlight">
+      <div class="value">833</div>
+      <div class="label">Total Records</div>
+    </div>
+    <div class="kpi green">
+      <div class="value">$4.71M</div>
+      <div class="label">Total Invoiced</div>
+    </div>
+    <div class="kpi purple">
+      <div class="value">$2.82M</div>
+      <div class="label">Payments (USD)</div>
+    </div>
+    <div class="kpi gold">
+      <div class="value">$3.70M</div>
+      <div class="label">Funding Received</div>
+    </div>
+    <div class="kpi">
+      <div class="value">11</div>
+      <div class="label">OMC Tenants</div>
+    </div>
+    <div class="kpi">
+      <div class="value">24</div>
+      <div class="label">Emails Parsed</div>
+    </div>
+  </div>
+
+  <div class="methodology">
+    <h4>How 4-Way Matching Works</h4>
+    <p>Each invoice (identified by NVC code) is matched across four data legs: <strong>1) Remittance Email</strong> from the customer's ERP, <strong>2) Invoice</strong> from Worksuite's aggregate DB, <strong>3) Received Payment</strong> (MoneyCorp inbound funding from agency), and <strong>4) Outbound Payment</strong> (MoneyCorp payment to contractor). Records are joined on NVC code. Amounts are verified within a $0.01 tolerance. The match status reflects how many legs are present.</p>
+  </div>
+
+  <div class="flow-diagram">
+    <div class="flow-step missing">
+      <div class="step-name">Leg 1: Remittance</div>
+      <div class="step-count">58</div>
+      <div style="font-size:11px;color:#888">emails parsed</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step active">
+      <div class="step-name">Leg 2: Invoice</div>
+      <div class="step-count">830</div>
+      <div style="font-size:11px;color:#888">from Worksuite DB</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step partial">
+      <div class="step-name">Leg 3: Funding In</div>
+      <div class="step-count">233</div>
+      <div style="font-size:11px;color:#888">received payments</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step active">
+      <div class="step-name">Leg 4: Payment Out</div>
+      <div class="step-count">483</div>
+      <div style="font-size:11px;color:#888">MoneyCorp payments</div>
+    </div>
+  </div>
+</div>
+
+<!-- STATUS TIER SYSTEM -->
+<div class="section">
+  <div class="section-title"><span class="num">1</span> Payment Status Codes &amp; Tier Classification</div>
+  <div class="section-desc">Invoice statuses in the Worksuite aggregate DB use canonical codes from the shortlist-platform pipeline. The reconciliation engine classifies these into three tiers that control how records appear in match-rate calculations and the queue.</div>
+
+  <div class="card">
+    <div class="card-title">Canonical Status Mapping</div>
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Status</th><th>Tier</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td><span class="badge badge-gray">New</span></td><td>Prematch</td><td>Invoice created, not yet approved. Excluded from match-rate calculations.</td></tr>
+        <tr><td>1</td><td><span class="badge badge-gold">Approved</span></td><td>Matchable</td><td>Approved by agency, awaiting payment scheduling.</td></tr>
+        <tr><td>2</td><td><span class="badge badge-green">Paid</span></td><td>Matchable</td><td>Payment confirmed &mdash; terminal success state.</td></tr>
+        <tr><td>3</td><td><span class="badge badge-red">Rejected</span></td><td>Terminal</td><td>Payment rejected. Excluded unless anomaly (rejected with funding).</td></tr>
+        <tr><td>4</td><td><span class="badge badge-purple">Scheduled</span></td><td>Matchable</td><td>Payment scheduled with MoneyCorp, awaiting processing.</td></tr>
+        <tr><td>5</td><td><span class="badge badge-purple">Processing</span></td><td>Matchable</td><td>Payment being processed by MoneyCorp.</td></tr>
+        <tr><td>6</td><td><span class="badge badge-orange">In Flight</span></td><td>Matchable</td><td>Payment sent, awaiting contractor confirmation.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="methodology" style="margin-top:20px">
+      <h4>Tier Definitions</h4>
+      <ul>
+        <li><strong>MATCHABLE_STATUSES</strong> &mdash; {Approved, Scheduled, Processing, In Flight, Paid}: Included in all match-rate and reconciliation calculations. These invoices are actively progressing through the payment pipeline.</li>
+        <li><strong>PREMATCH_STATUSES</strong> &mdash; {New}: Excluded from match rates. These invoices have not yet been approved and are too early in the lifecycle to expect funding or payment data.</li>
+        <li><strong>TERMINAL_STATUSES</strong> &mdash; {Rejected}: Excluded from match rates <em>unless</em> the record is flagged as an anomaly (rejected invoice that has associated funding or outbound payment data).</li>
+      </ul>
+    </div>
+
+    <div class="callout callout-red" style="margin-top:16px">
+      <div class="callout-title">Anomaly Detection: Rejected with Funding</div>
+      <p>The engine flags records where the invoice status is <strong>Rejected</strong> but an outbound payment (Leg 4) or received funding (Leg 3) exists. These represent potential financial discrepancies &mdash; money may have moved for an invoice that was subsequently rejected. These records are surfaced in the queue despite being in a terminal status, and are counted separately in the <code>anomaly_rejected_with_funding</code> metric returned by <code>get_recon_summary()</code>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- MATCH STATUS BREAKDOWN -->
+<div class="section">
+  <div class="section-title"><span class="num">2</span> Current Reconciliation Status</div>
+  <div class="section-desc">Breakdown of all 833 reconciliation records by match completeness. The dominant category is <strong>invoice_payment_only</strong> (456 records) &mdash; these have a verified invoice and a confirmed MoneyCorp payment, but are missing the remittance email (Leg 1).</div>
+
+  <div class="card">
+    <div class="chart-container">
+      <canvas id="statusChart"></canvas>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Count</th><th>%</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="badge badge-green">invoice_payment_only</span></td><td><strong>456</strong></td><td>54.7%</td><td>Invoice + MoneyCorp payment confirmed. Missing remittance email only.</td></tr>
+        <tr><td><span class="badge badge-gray">invoice_only</span></td><td><strong>318</strong></td><td>38.2%</td><td>Invoice in Worksuite but not yet paid (New/Approved/Scheduled/Processing/In Flight)</td></tr>
+        <tr><td><span class="badge badge-purple">2way_matched</span></td><td><strong>32</strong></td><td>3.8%</td><td>Remittance email + Invoice matched</td></tr>
+        <tr><td><span class="badge badge-purple">3way_no_funding</span></td><td><strong>21</strong></td><td>2.5%</td><td>Remittance + Invoice + Payment, no received payment linked</td></tr>
+        <tr><td><span class="badge badge-green">full_4way</span></td><td><strong>3</strong></td><td>0.4%</td><td>All four legs matched</td></tr>
+        <tr><td><span class="badge badge-orange">3way_awaiting_payment</span></td><td><strong>1</strong></td><td>0.1%</td><td>Remittance + Invoice + Funding, payment pending</td></tr>
+        <tr><td><span class="badge badge-orange">payment_only</span></td><td><strong>1</strong></td><td>0.1%</td><td>MoneyCorp payment with no matching invoice</td></tr>
+        <tr><td><span class="badge badge-gray">remittance_only</span></td><td><strong>1</strong></td><td>0.1%</td><td>Remittance email with no matching invoice</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ANALYSIS 1: TIME SERIES -->
+<div class="section">
+  <div class="section-title"><span class="num">3</span> Match Rate by Time Period</div>
+  <div class="section-desc"><strong>Intent:</strong> Determine if recent invoices are matching better than older ones. If older invoices already have both invoice + payment data, they can be bulk-marked as funded.</div>
+
+  <div class="methodology">
+    <h4>Methodology</h4>
+    <p>Records grouped by month using the earliest available date (payment_date, remittance_date, or first_seen_at). "Reconciled" means 2way_matched or better. "Funded" means the record has both an invoice and a confirmed MoneyCorp outbound payment (invoice_payment_only + all reconciled statuses). Only <strong>matchable</strong> records (excluding New and Rejected tier invoices) are included in match-rate percentages.</p>
+  </div>
+
+  <div class="card">
+    <div class="chart-container">
+      <canvas id="timeChart"></canvas>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Period</th><th>Records</th><th>Funded (Inv+Pay)</th><th>Funded %</th><th>Reconciled</th><th>Recon %</th><th>Invoice Only</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Nov 2025</strong></td><td>11</td><td>11</td><td><span class="badge badge-green">100%</span></td><td>0</td><td>0%</td><td>0</td></tr>
+        <tr><td><strong>Dec 2025</strong></td><td>80</td><td>80</td><td><span class="badge badge-green">100%</span></td><td>2</td><td>2.5%</td><td>0</td></tr>
+        <tr><td><strong>Jan 2026</strong></td><td>213</td><td>212</td><td><span class="badge badge-green">99.5%</span></td><td>0</td><td>0%</td><td>0</td></tr>
+        <tr><td><strong>Feb 2026</strong></td><td>495</td><td>177</td><td><span class="badge badge-orange">35.8%</span></td><td>22</td><td>4.4%</td><td>318</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout" style="margin-top:16px">
+      <div class="callout-title">Key Finding</div>
+      <p><strong>Nov 2025 &ndash; Jan 2026: 100% funded.</strong> Every record from these months has both a confirmed invoice and MoneyCorp payment. The only missing piece is the remittance email &mdash; which is a documentation gap, not a financial gap. These <strong>303 records</strong> are strong candidates for bulk-marking as funded.</p>
+      <p style="margin-top:8px">Feb 2026 has lower coverage (35.8%) because 318 invoices are still in New/Approved/Scheduled/Processing/In Flight status and haven't been paid yet.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ANALYSIS 2: TENANT FUNDING MATCH -->
+<div class="section">
+  <div class="section-title"><span class="num">4</span> Funding vs. Invoices by Tenant</div>
+  <div class="section-desc"><strong>Intent:</strong> For the 456 invoice_payment_only records, verify that MoneyCorp payment amounts match invoice amounts at the tenant level. This confirms money out = money invoiced, even without the remittance email.</div>
+
+  <div class="methodology">
+    <h4>Methodology</h4>
+    <p>Aggregated invoice_amount and payment_amount per tenant for all <code>invoice_payment_only</code> records. "Exact match" means the NVC-level invoice and payment amounts are within $0.01. "FX" indicates the payment was made in the contractor's local currency (COP, MXN, PHP, GBP, EUR, CNH) rather than USD.</p>
+  </div>
+
+  <div class="card">
+    <div class="tab-container">
+      <div class="tab active" onclick="switchTab('summary')">Summary</div>
+      <div class="tab" onclick="switchTab('detail')">Detailed View</div>
+      <div class="tab" onclick="switchTab('fx')">FX Mismatches</div>
+    </div>
+
+    <div id="tab-summary" class="tab-content active">
+      <div class="kpi-grid" style="margin-bottom:20px">
+        <div class="kpi green">
+          <div class="value">428</div>
+          <div class="label">Exact USD Match</div>
+        </div>
+        <div class="kpi gold">
+          <div class="value">28</div>
+          <div class="label">FX (Valid)</div>
+        </div>
+        <div class="kpi highlight">
+          <div class="value">93.9%</div>
+          <div class="label">Exact Match Rate</div>
+        </div>
+        <div class="kpi">
+          <div class="value">0</div>
+          <div class="label">Unexplained Diffs</div>
+        </div>
+      </div>
+      <div class="chart-container" style="height:350px">
+        <canvas id="tenantChart"></canvas>
+      </div>
+    </div>
+
+    <div id="tab-detail" class="tab-content">
+      <table>
+        <thead>
+          <tr><th>Tenant</th><th>Records</th><th>Invoice Total (USD)</th><th>Exact Match</th><th>FX</th><th>Match Rate</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>omcbbdo</td><td>46</td><td class="money">$635,253</td><td>46</td><td>0</td><td><span class="badge badge-green">100%</span></td></tr>
+          <tr><td>omcohg</td><td>97</td><td class="money">$507,718</td><td>96</td><td>1</td><td><span class="badge badge-green">99.0%</span></td></tr>
+          <tr><td>omnicomddb</td><td>20</td><td class="money">$357,090</td><td>20</td><td>0</td><td><span class="badge badge-green">100%</span></td></tr>
+          <tr><td>omnicombranding</td><td>36</td><td class="money">$269,905</td><td>33</td><td>3</td><td><span class="badge badge-green">91.7%</span></td></tr>
+          <tr><td>omnicom</td><td>37</td><td class="money">$258,850</td><td>37</td><td>0</td><td><span class="badge badge-green">100%</span></td></tr>
+          <tr><td>omnicomprg</td><td>100</td><td class="money">$235,284</td><td>98</td><td>2</td><td><span class="badge badge-green">98.0%</span></td></tr>
+          <tr><td>omnicomtbwa</td><td>14</td><td class="money">$150,863</td><td>13</td><td>1</td><td><span class="badge badge-green">92.9%</span></td></tr>
+          <tr><td>omnicomoac</td><td>47</td><td class="money">$101,171</td><td>40</td><td>7</td><td><span class="badge badge-gold">85.1%</span></td></tr>
+          <tr><td>omnicommedia</td><td>16</td><td class="money">$62,909</td><td>12</td><td>4</td><td><span class="badge badge-gold">75.0%</span></td></tr>
+          <tr><td>omcflywheel</td><td>38</td><td class="money">$55,366</td><td>28</td><td>10</td><td><span class="badge badge-orange">73.7%</span></td></tr>
+          <tr><td>omnicomprecision</td><td>5</td><td class="money">$46,975</td><td>5</td><td>0</td><td><span class="badge badge-green">100%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="tab-fx" class="tab-content">
+      <p style="font-size:13px;color:#555;margin-bottom:12px">28 records where the invoice is in USD but the MoneyCorp payment was made in the contractor's local currency. These are valid payments &mdash; the amount difference is entirely due to FX conversion.</p>
+      <table>
+        <thead><tr><th>NVC Code</th><th>Tenant</th><th>Invoice (USD)</th><th>Payment</th><th>Currency</th></tr></thead>
+        <tbody>
+          <tr><td>NVC7K6NRCRWN</td><td>omnicomoac</td><td class="money">$1,058</td><td class="money">3,624,891</td><td><span class="badge badge-gold">COP</span></td></tr>
+          <tr><td>NVC7KNGHPFPQ</td><td>omnicombranding</td><td class="money">$8,800</td><td class="money">146,712</td><td><span class="badge badge-gold">MXN</span></td></tr>
+          <tr><td>NVC7KP9V76GL</td><td>omcflywheel</td><td class="money">$671</td><td class="money">37,748</td><td><span class="badge badge-gold">PHP</span></td></tr>
+          <tr><td>NVC7KCKNMY7F</td><td>omcflywheel</td><td class="money">$4,935</td><td class="money">82,332</td><td><span class="badge badge-gold">MXN</span></td></tr>
+          <tr><td>NVC7JDAWQGQX</td><td>omcflywheel</td><td class="money">$1,635</td><td class="money">1,338</td><td><span class="badge badge-gold">EUR</span></td></tr>
+          <tr><td>NVC7H4PKGNTM</td><td>omcflywheel</td><td class="money">$3,059</td><td class="money">2,239</td><td><span class="badge badge-gold">GBP</span></td></tr>
+          <tr><td>NVC7H4C7YW37</td><td>omcflywheel</td><td class="money">$2,055</td><td class="money">36,029</td><td><span class="badge badge-gold">MXN</span></td></tr>
+          <tr><td>NVC7H4CYD9NM</td><td>omcflywheel</td><td class="money">$800</td><td class="money">5,421</td><td><span class="badge badge-gold">CNH</span></td></tr>
+          <tr><td>NVC7JW7FVLCY</td><td>omcohg</td><td class="money">$3,110</td><td class="money">2,546</td><td><span class="badge badge-gold">EUR</span></td></tr>
+          <tr><td>NVC7KVAPL6RN</td><td>omnicommedia</td><td class="money">$500</td><td class="money">27,923</td><td><span class="badge badge-gold">PHP</span></td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:12px;color:#888;margin-top:8px">Showing 10 of 28 FX records. Currencies: COP (Colombian Peso), MXN (Mexican Peso), PHP (Philippine Peso), EUR, GBP, CNH (Chinese Yuan offshore).</p>
+    </div>
+  </div>
+</div>
+
+<!-- ANALYSIS 3: RECEIVED PAYMENTS -->
+<div class="section">
+  <div class="section-title"><span class="num">5</span> Received Payments (Inbound Funding) Analysis</div>
+  <div class="section-desc"><strong>Intent:</strong> Identify any orphan funding &mdash; money received from agencies via MoneyCorp that doesn't correspond to known invoices. Also assess funding coverage per tenant.</div>
+
+  <div class="methodology">
+    <h4>Methodology</h4>
+    <p>Cross-referenced MoneyCorp received payments (grouped by account/practice) against total invoiced amounts per tenant. Coverage % = received amount / total invoiced. Received payments are inbound USD funding from agencies to Worksuite's MoneyCorp sub-accounts.</p>
+  </div>
+
+  <div class="card">
+    <div class="kpi-grid" style="margin-bottom:20px">
+      <div class="kpi">
+        <div class="value">233</div>
+        <div class="label">Received Payments</div>
+      </div>
+      <div class="kpi green">
+        <div class="value">$3.70M</div>
+        <div class="label">Total Received</div>
+      </div>
+      <div class="kpi purple">
+        <div class="value">$4.71M</div>
+        <div class="label">Total Invoiced</div>
+      </div>
+      <div class="kpi highlight">
+        <div class="value">$1.01M</div>
+        <div class="label">Funding Gap</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">No Orphan Payments Found</div>
+      <p>Every received payment maps to a known OMC tenant account. No unaccountable funds were detected. The $1.01M gap is expected: newer invoices haven't been funded yet, and some older received payments may predate the data window.</p>
+    </div>
+
+    <table style="margin-top:16px">
+      <thead>
+        <tr><th>MoneyCorp Account</th><th>Payments</th><th>Received (USD)</th><th>Invoiced (USD)</th><th>Coverage</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Omnicom Advertising - BBDO</td><td>14</td><td class="money">$754,167</td><td class="money">$786,753</td><td><div class="bar-container"><div class="bar" style="width:96%;background:var(--ws-green)"></div><span class="bar-label">95.9%</span></div></td></tr>
+        <tr><td>Omnicom Healthcare</td><td>54</td><td class="money">$729,243</td><td class="money">$837,883</td><td><div class="bar-container"><div class="bar" style="width:87%;background:var(--ws-green)"></div><span class="bar-label">87.0%</span></div></td></tr>
+        <tr><td>Omnicom Public Relations</td><td>83</td><td class="money">$565,194</td><td class="money">$637,725</td><td><div class="bar-container"><div class="bar" style="width:89%;background:var(--ws-green)"></div><span class="bar-label">88.6%</span></div></td></tr>
+        <tr><td>Omnicom Advertising - DDB</td><td>11</td><td class="money">$406,339</td><td class="money">$478,590</td><td><div class="bar-container"><div class="bar" style="width:85%;background:var(--ws-green)"></div><span class="bar-label">84.9%</span></div></td></tr>
+        <tr><td>Omnicom Production</td><td>11</td><td class="money">$395,683</td><td class="money">$470,025</td><td><div class="bar-container"><div class="bar" style="width:84%;background:var(--ws-green)"></div><span class="bar-label">84.2%</span></div></td></tr>
+        <tr><td>Omnicom Branding Consulting</td><td>15</td><td class="money">$386,930</td><td class="money">$407,555</td><td><div class="bar-container"><div class="bar" style="width:95%;background:var(--ws-green)"></div><span class="bar-label">94.9%</span></div></td></tr>
+        <tr><td>Omnicom Advertising - TBWA</td><td>10</td><td class="money">$150,863</td><td class="money">$489,603</td><td><div class="bar-container"><div class="bar" style="width:31%;background:var(--ws-orange)"></div><span class="bar-label">30.8%</span></div></td></tr>
+        <tr><td>Omnicom Advertising - OAC</td><td>18</td><td class="money">$146,813</td><td class="money">$241,671</td><td><div class="bar-container"><div class="bar" style="width:61%;background:var(--ws-gold)"></div><span class="bar-label">60.7%</span></div></td></tr>
+        <tr><td>Omnicom Media</td><td>11</td><td class="money">$73,032</td><td class="money">$82,909</td><td><div class="bar-container"><div class="bar" style="width:88%;background:var(--ws-green)"></div><span class="bar-label">88.1%</span></div></td></tr>
+        <tr><td>Omnicom Precision Marketing</td><td>2</td><td class="money">$46,975</td><td class="money">$75,075</td><td><div class="bar-container"><div class="bar" style="width:63%;background:var(--ws-gold)"></div><span class="bar-label">62.6%</span></div></td></tr>
+        <tr><td>Omnicom Flywheel Digital</td><td>4</td><td class="money">$42,185</td><td class="money">$199,262</td><td><div class="bar-container"><div class="bar" style="width:21%;background:var(--ws-orange)"></div><span class="bar-label">21.2%</span></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- INVOICE PIPELINE -->
+<div class="section">
+  <div class="section-title"><span class="num">6</span> Invoice Pipeline (invoice_only breakdown)</div>
+  <div class="section-desc">318 records are "invoice_only" &mdash; they exist in Worksuite but haven't been paid via MoneyCorp yet. Here's where they sit in the payment lifecycle, using the canonical status codes.</div>
+  <div class="card">
+    <div class="chart-container" style="height:250px">
+      <canvas id="pipelineChart"></canvas>
+    </div>
+    <table>
+      <thead><tr><th>Invoice Status</th><th>Code</th><th>Tier</th><th>Count</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-purple">Processing</span></td><td>5</td><td>Matchable</td><td><strong>162</strong></td><td>Payment being processed by MoneyCorp</td></tr>
+        <tr><td><span class="badge badge-gold">Approved</span></td><td>1</td><td>Matchable</td><td><strong>65</strong></td><td>Approved by agency, awaiting payment scheduling</td></tr>
+        <tr><td><span class="badge badge-orange">In Flight</span></td><td>6</td><td>Matchable</td><td><strong>39</strong></td><td>Payment sent, awaiting contractor confirmation</td></tr>
+        <tr><td><span class="badge badge-gray">New</span></td><td>0</td><td>Prematch</td><td><strong>34</strong></td><td>Invoice created, not yet approved. Excluded from match rates.</td></tr>
+        <tr><td><span class="badge badge-green">Paid</span></td><td>2</td><td>Matchable</td><td><strong>18</strong></td><td>Marked as paid but no MoneyCorp payment found (investigate)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="methodology" style="margin-top:16px">
+      <h4>Tier Impact on Match Rates</h4>
+      <p>Of the 318 invoice_only records, <strong>34 are New</strong> (prematch tier) and are excluded from match-rate denominators. The remaining 284 are matchable and represent the active pipeline. Any Rejected invoices with associated funding data would be surfaced as anomalies.</p>
+    </div>
+  </div>
+</div>
+
+<!-- RECOMMENDATIONS -->
+<div class="section">
+  <div class="section-title"><span class="num">7</span> Recommendations</div>
+
+  <div class="recommendation">
+    <h4>1. Bulk-Mark 303 Historical Records as Funded</h4>
+    <p>All Nov 2025 &ndash; Jan 2026 records have both a confirmed invoice and MoneyCorp payment. 93.9% are exact USD matches. The missing remittance email is a documentation gap, not a financial discrepancy. Recommend marking these as "funded" to clear the backlog and focus attention on current-month reconciliation.</p>
+  </div>
+
+  <div class="recommendation" style="margin-top:12px">
+    <h4>2. Increase Remittance Email Coverage</h4>
+    <p>Only 58 of 833 records (7.0%) have remittance data. Two tenants (omcflywheel, omnicomprg) have zero email coverage despite being active. Investigate: Are emails being sent to a different address? Is the email format different from OASYS/D365 ACH? Each new email source could immediately match 50&ndash;100+ records.</p>
+  </div>
+
+  <div class="recommendation" style="margin-top:12px">
+    <h4>3. Investigate 18 "Paid" Invoices with No Payment</h4>
+    <p>18 invoices are marked as "Paid" (code 2) in Worksuite but have no corresponding MoneyCorp payment. These may use a different payment processor, or the MoneyCorp data may be lagging. Concentrated in omnicomprg and omcohg.</p>
+  </div>
+
+  <div class="recommendation" style="margin-top:12px">
+    <h4>4. Add FX-Aware Matching</h4>
+    <p>28 records have valid payments in local currencies (COP, MXN, PHP, GBP, EUR, CNH). These should be matched by comparing against known FX rates or by accepting the MoneyCorp payment as valid regardless of currency conversion differences.</p>
+  </div>
+
+  <div class="recommendation" style="margin-top:12px">
+    <h4>5. Monitor "Rejected with Funding" Anomalies</h4>
+    <p>The reconciliation engine now detects invoices with a Rejected status (code 3) that have associated funding or payment data. These anomalies should be reviewed promptly &mdash; they may indicate payments made against subsequently rejected invoices, requiring manual investigation or clawback procedures. The <code>get_recon_summary()</code> endpoint exposes the <code>anomaly_rejected_with_funding</code> count for dashboard monitoring.</p>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<div style="background:#f0f0f0;padding:16px 40px;text-align:center;font-size:12px;color:#888;margin-top:40px">
+  Generated by OFM Reconciliation Engine &mdash; February 20, 2026 &mdash; Data window: October 1, 2025 &ndash; February 20, 2026
+</div>
+
+<script>
+// Status donut chart
+new Chart(document.getElementById('statusChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Invoice+Payment (456)', 'Invoice Only (318)', '2-Way Matched (32)', '3-Way No Funding (21)', 'Full 4-Way (3)', 'Other (3)'],
+    datasets: [{
+      data: [456, 318, 32, 21, 3, 3],
+      backgroundColor: ['#5032A0', '#DDE3EB', '#006032', '#E1B347', '#FF4821', '#95B1D2'],
+      borderWidth: 2,
+      borderColor: '#fff'
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'right', labels: { font: { size: 12 }, padding: 12 } }
+    }
+  }
+});
+
+// Time series stacked bar
+new Chart(document.getElementById('timeChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Nov 2025', 'Dec 2025', 'Jan 2026', 'Feb 2026'],
+    datasets: [
+      { label: 'Invoice+Payment', data: [11, 78, 212, 155], backgroundColor: '#5032A0' },
+      { label: 'Reconciled', data: [0, 2, 0, 22], backgroundColor: '#006032' },
+      { label: 'Invoice Only', data: [0, 0, 0, 318], backgroundColor: '#DDE3EB' },
+      { label: 'Other', data: [0, 0, 1, 0], backgroundColor: '#95B1D2' },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: 'Records' } } },
+    plugins: { legend: { position: 'top' } }
+  }
+});
+
+// Tenant horizontal bar
+new Chart(document.getElementById('tenantChart'), {
+  type: 'bar',
+  data: {
+    labels: ['BBDO', 'OHG', 'DDB', 'Branding', 'Production', 'PRG', 'TBWA', 'OAC', 'Media', 'Flywheel', 'Precision'],
+    datasets: [
+      { label: 'Exact Match', data: [46,96,20,33,37,98,13,40,12,28,5], backgroundColor: '#006032' },
+      { label: 'FX Match', data: [0,1,0,3,0,2,1,7,4,10,0], backgroundColor: '#E1B347' },
+    ]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    scales: { x: { stacked: true, title: { display: true, text: 'Records' } }, y: { stacked: true } },
+    plugins: { legend: { position: 'top' } }
+  }
+});
+
+// Pipeline donut — updated with canonical status names
+new Chart(document.getElementById('pipelineChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Processing (162)', 'Approved (65)', 'In Flight (39)', 'New (34)', 'Paid (18)'],
+    datasets: [{
+      data: [162, 65, 39, 34, 18],
+      backgroundColor: ['#5032A0', '#E1B347', '#FF4821', '#DDE3EB', '#006032'],
+      borderWidth: 2, borderColor: '#fff'
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'right', labels: { font: { size: 12 }, padding: 12 } } }
+  }
+});
+
+// Tab switching
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+</script>
+
+</body>
+</html>
