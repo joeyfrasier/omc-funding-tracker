@@ -41,11 +41,19 @@ export interface OverviewData {
   total_value: number;
   total_emails: number;
   total_remittances: number;
-  agencies: { name: string; count: number; total: number; reconciled_count?: number; unreconciled_count?: number }[];
+  agencies: {
+    name: string; count: number; total: number;
+    matchable_count?: number; reconciled_count?: number; full_4way_count?: number;
+    unreconciled_count?: number; anomaly_count?: number;
+  }[];
   errors: Record<string, string>;
   services: Record<string, string>;
   sync?: Record<string, string>;
   funding_count?: number;
+  matchable_total?: number;
+  excluded_prematch?: number;
+  excluded_terminal?: number;
+  anomaly_rejected_with_funding?: number;
 }
 
 export interface EmailItem {

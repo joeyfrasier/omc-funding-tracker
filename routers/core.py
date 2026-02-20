@@ -131,6 +131,10 @@ def overview(days: int = Query(7, ge=1, le=365)):
         "services": services,
         "sync": {s['source']: s['status'] for s in get_sync_state()},
         "funding_count": recon_summary_data.get('3way_awaiting_payment', 0) + recon_summary_data.get('full_4way', 0),
+        "matchable_total": recon_summary_data.get('matchable_total', 0),
+        "excluded_prematch": recon_summary_data.get('excluded_prematch', 0),
+        "excluded_terminal": recon_summary_data.get('excluded_terminal', 0),
+        "anomaly_rejected_with_funding": recon_summary_data.get('anomaly_rejected_with_funding', 0),
     })
 
 

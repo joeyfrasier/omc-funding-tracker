@@ -744,7 +744,7 @@ function OverviewTab() {
           <MetricCard
             label="Fully Reconciled"
             value={data?.matched_3way ?? "—"}
-            delta={data ? `of ${data.total_lines} tracked records` : undefined}
+            delta={data ? `of ${data.matchable_total || data.total_lines} matchable records` : undefined}
             deltaColor="green"
           />
           <MetricCard
@@ -760,6 +760,16 @@ function OverviewTab() {
             deltaColor="gray"
           />
         </div>
+        {data && ((data.excluded_prematch || 0) > 0 || (data.excluded_terminal || 0) > 0) && (
+          <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
+            <span>{data.total_lines} total records</span>
+            {(data.excluded_prematch || 0) > 0 && <span>{data.excluded_prematch} New (pre-match)</span>}
+            {(data.excluded_terminal || 0) > 0 && <span>{data.excluded_terminal} Rejected</span>}
+            {(data.anomaly_rejected_with_funding || 0) > 0 && (
+              <span className="text-red-500 font-medium">{data.anomaly_rejected_with_funding} rejected with funding</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-5 gap-8">
@@ -768,24 +778,29 @@ function OverviewTab() {
           {data && data.agencies.length > 0 ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between py-1 px-3 text-xs text-gray-400">
-                <span className="w-40">Group</span>
-                <span className="w-20 text-right">Records</span>
+                <span className="w-36">Group</span>
+                <span className="w-20 text-right">Matchable</span>
                 <span className="w-24 text-right">Total</span>
                 <span className="w-24 text-right">Reconciled</span>
                 <span className="w-24 text-right">Unreconciled</span>
+                <span className="w-20 text-right">Anomalies</span>
               </div>
               {data.agencies.slice(0, 12).map((a: any) => {
                 const unrecon = a.unreconciled_count ?? 0;
+                const anomalies = a.anomaly_count ?? 0;
                 return (
                   <div key={a.name} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50">
-                    <span className="font-semibold text-sm w-40 truncate">{a.name}</span>
-                    <span className="text-sm text-gray-500 w-20 text-right">{a.count}</span>
+                    <span className="font-semibold text-sm w-36 truncate">{a.name}</span>
+                    <span className="text-sm text-gray-500 w-20 text-right">{a.matchable_count ?? a.count}</span>
                     <span className="text-sm font-medium w-24 text-right">{formatCurrency(a.total)}</span>
                     <span className={`text-sm w-24 text-right ${(a.reconciled_count || 0) > 0 ? 'text-[var(--color-ws-green)] font-medium' : 'text-gray-400'}`}>
                       {a.reconciled_count ?? '—'}
                     </span>
                     <span className={`text-sm w-24 text-right ${unrecon > 0 ? 'text-[var(--color-ws-orange)] font-medium' : 'text-gray-400'}`}>
                       {unrecon > 0 ? unrecon : '—'}
+                    </span>
+                    <span className={`text-sm w-20 text-right ${anomalies > 0 ? 'text-red-600 font-medium' : 'text-gray-300'}`}>
+                      {anomalies > 0 ? anomalies : '—'}
                     </span>
                   </div>
                 );
